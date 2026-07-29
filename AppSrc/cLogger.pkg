@@ -1,0 +1,138 @@
+﻿Use VdfBase.pkg
+
+Class cLogger is a cObject
+    
+    Procedure Construct_Object
+        Forward Send Construct_Object
+        
+        Property Boolean pbWriteToFile      // If True, write any log to the designated log file
+        Property Boolean pbWriteToDatabase  // If True, write any log to the designated area in the database
+        Property Boolean pbWriteToEventLog  // If True, write any log to the Windows Event Log
+        
+        // Defaults, can be overridden
+        Property Handle phoLogDataDictionary
+        Property String psLogTable
+        
+        Property String psLogFolderPath
+        Property Boolean pbLogToSingleFile False // If True, will write everything to one big log file. If false, will separate the log file per day
+        Property Integer piEventCode
+    End_Procedure
+    
+    Function GetLogDdoHande Returns Handle
+        Handle hoDD
+        
+        Get phoLogDataDictionary to hoDD
+        
+        Send OnGetLogDdoHandle (&hoDD)
+            
+        Function_Return hoDd
+    End_Function
+    
+    {MethodType = Event}
+    Procedure OnGetLogDdoHandle Handle ByRef HoDD
+        // Stub
+    End_Procedure
+    
+    Function GetLogFilePath Returns String
+        String sPath
+        
+        Get psLogFile to sPath
+        
+        Send OnGetLogFilePath (&sPath)
+            
+        Function_Return sPath
+    End_Function
+    
+    {MethodType = Event}
+    Procedure OnGetLogFilePath String ByRef sPath
+        // Stub
+    End_Procedure
+    
+    Function GetEventCode Returns Integer
+        Integer iCode
+        
+        Get piEventCode to iCode
+        
+        Send OnGetEventCode (&iCode)
+            
+        Function_Return iCode
+    End_Function
+    
+    {MethodType = Event}
+    Procedure OnGetEventCode Integer ByRef iCode
+        // Stub
+    End_Procedure
+    
+    Procedure WriteLog DateTime dtTimeStamp String sCategory String sMessage Integer iOptCode
+        If (pbWriteToDatabase(Self)) ;
+            Send WriteLogEntryDatabase dtTimeStamp sCategory sMessage iOptCode
+
+        If (pbWriteToFile(Self)) ;
+            Send WriteLogEntryFile dtTimeStamp sCategory sMessage iOptCode
+            
+        If (pbWriteToEventLog(Self)) ;
+            Send WriteLogEntryEventLog dtTimeStamp sCategory sMessage 100
+    End_Procedure
+    
+    Procedure WriteLogEntryDatabase DateTime dtTimeStamp String sCategory String sMessage Integer iOptCode
+        Boolean bExists
+        
+        Get TableExists to bExists
+        If (bExists) Begin
+            // Write entry in DB using DDO
+        End
+    End_Procedure
+    
+    Procedure WriteLogEntryFile DateTime dtTimeStamp String sCategory String sMessage Integer iOptCode
+        Boolean bExists
+        
+        Get LogFolderExists to bExists
+
+        If (bExists) Begin
+            // Check pbLogToSingleFile and write accordingly
+        End
+    End_Procedure
+    
+    Procedure WriteLogEntryEventLog DateTime dtTimeStamp String sCategory String sMessage Integer iCode
+    End_Procedure
+    
+    Procedure InitLogger
+        If (pbWriteToDatabase(Self)) Begin
+            // Check if table exists
+            // Create if not
+        End
+        
+        If (pbWriteToFile(Self)) Begin
+            // Check if folder exists
+            // Create folder if not    
+        End
+    End_Procedure
+    
+    // Check if given psLogTable exists
+    // Return true if exists, false if missing
+    Function TableExists Returns Boolean
+    End_Function
+    
+    // Create table (based on psLogTableName) if it doesn't exist
+    // Return 1 if success, 0 if failed
+    Function CreateTable Returns Integer
+        // Use external SQL script with a parameterized table name for this?
+    End_Function
+    
+    // Check if given psLogFolderPath exists
+    // Return true if exists, false if missing
+    Function LogFolderExists Returns Boolean
+    End_Function
+    
+    // Create the log folder in the Workspace's root directory
+    // Return 1 if success, 0 if failed
+    Function CreateLogFolder Returns Integer
+    End_Function
+
+    Procedure End_Construct_Object
+        Forward Send End_Construct_Object
+        
+        Send InitLogger
+    End_Procedure
+
+End_Class

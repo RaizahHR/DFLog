@@ -1,25 +1,35 @@
 Use cLoggerWorker.pkg
 Use Seq_Chnl.pkg
 
+// Logging worker that appends one compact ECS JSON document per line.
 Class cLoggerFile is a cLoggerWorker
     Procedure Construct_Object
         Forward Send Construct_Object
 
         Set psSinkName to "File"
 
+        // Absolute log folder or a path relative to the workspace root. An
+        // empty value defaults to the relative "Logs" folder.
         Property String psLogFolderPath ""
+
+        // Base output name. An empty value defaults to DFLog.jsonl.
         Property String psLogFileName "DFLog.jsonl"
+
+        // Writes to the exact base file when True; otherwise adds yyyy-mm-dd.
         Property Boolean pbLogToSingleFile False
     End_Procedure
 
+    // Override to adjust the fully resolved log folder before it is used.
     { MethodType=Event }
     Procedure OnGetLogFolderPath String ByRef sPath
     End_Procedure
 
+    // Override to adjust the final dated/full log file path before writing.
     { MethodType=Event }
     Procedure OnGetLogFilePath String ByRef sPath
     End_Procedure
 
+    // Returns the active workspace root, falling back to the current directory.
     Function WorkspaceRoot Returns String
         Handle hoWorkspace
         String sRoot
@@ -34,10 +44,12 @@ Class cLoggerFile is a cLoggerWorker
         Function_Return sRoot
     End_Function
 
+    // Returns whether a path is rooted, drive-qualified, or a UNC path.
     Function IsAbsolutePath String sPath Returns Boolean
         Function_Return ((Mid(sPath, 1, 2) = ":") or (Left(sPath, 2) = "\\") or (Left(sPath, 1) = "\"))
     End_Function
 
+    // Resolves psLogFolderPath to a normalized absolute path and invokes its hook.
     Function GetLogFolderPath Returns String
         Boolean bAbsolute
         String sPath sRoot
@@ -57,6 +69,7 @@ Class cLoggerFile is a cLoggerWorker
         Function_Return sPath
     End_Function
 
+    // Formats the date suffix used for daily log-file rotation.
     Function FormatLogDate DateTime dtTimeStamp Returns String
         String sDate
 
@@ -66,6 +79,8 @@ Class cLoggerFile is a cLoggerWorker
         Function_Return sDate
     End_Function
 
+    // Resolves the output file for a supplied timestamp. Daily mode inserts the
+    // date before .jsonl/.log, or appends a .jsonl suffix for other names.
     Function GetLogFilePathForDateTime DateTime dtTimeStamp Returns String
         String sFolder sFile sDate
 
@@ -89,6 +104,7 @@ Class cLoggerFile is a cLoggerWorker
         Function_Return sFile
     End_Function
 
+    // Resolves the output file path for the current time.
     Function GetLogFilePath Returns String
         String sPath
 
@@ -96,6 +112,7 @@ Class cLoggerFile is a cLoggerWorker
         Function_Return sPath
     End_Function
 
+    // Returns whether the resolved log folder currently exists.
     Function LogFolderExists Returns Boolean
         String sPath
 
@@ -103,6 +120,7 @@ Class cLoggerFile is a cLoggerWorker
         Function_Return (IsDirectory(sPath))
     End_Function
 
+    // Recursively creates the resolved log folder and reports failures safely.
     Function CreateLogFolder Returns Boolean
         Boolean bOldErr bCreated
         Handle hoOldErrorHandler
@@ -130,6 +148,7 @@ Class cLoggerFile is a cLoggerWorker
         Function_Return bCreated
     End_Function
 
+    // Ensures the output folder exists before the worker is marked ready.
     Function InitWorker Returns Boolean
         Boolean bExists bCreated
 
@@ -141,6 +160,7 @@ Class cLoggerFile is a cLoggerWorker
         Function_Return bExists
     End_Function
 
+    // Formats the entry as ECS JSON and appends it as one JSON Lines record.
     Procedure WriteLog DateTime dtTimeStamp String sCategory String sMessage Integer iCode Integer iMessageLogLevel String sTraceId String sAdditionalData
         Boolean bOldErr bReady bOpened bFailed
         Handle hoLogger hoOldErrorHandler

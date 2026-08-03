@@ -5,22 +5,38 @@ Use cJsonObject.pkg
 
 Define C_DFLOG_DEFAULT_EVENTCODE for 100
 
+// Public logger API. Owns shared log settings and dispatches each entry to its
+// enabled child cLoggerWorker objects.
 Class cLogger is a cObject
     Procedure Construct_Object
         Forward Send Construct_Object
 
+        // Service/application name written to every sink. An empty value is
+        // resolved from ghoApplication and ultimately falls back to "DataFlex".
         Property String psApplicationName ""
+
+        // Default event code used when WriteLog receives zero for iOptCode.
         Property Integer piEventCode C_DFLOG_DEFAULT_EVENTCODE
+
+        // Most recent worker or configuration error, prefixed with its sink.
         Property String psLastError ""
+
+        // Raises deterministic configuration mistakes as DFERR_PROGRAM when True.
         Property Boolean pbDebugErrorsEnabled True
 
+        // Backing value for the validated piLogLevel property.
         Property Integer Private_piLogLevel DFLOG_INFO
+
+        // Worker handles discovered by InitLogger. Applications should declare
+        // workers as child objects and must not populate this array directly.
         Property Handle[] phoaLoggerWorkers
 
         { Visibility=Private }
+        // Prevents OnLogError or a worker failure from recursively logging.
         Property Boolean Private_pbIsWriting False
     End_Procedure
 
+    // Sets the maximum enabled verbosity after validating a DFLOG_* constant.
     { MethodType=Property }
     Procedure Set piLogLevel Integer iLogLevel
         If ((iLogLevel < DFLOG_NONE) or (iLogLevel > DFLOG_INFO)) Begin
@@ -32,20 +48,25 @@ Class cLogger is a cObject
         Set Private_piLogLevel to iLogLevel
     End_Procedure
 
+    // Returns the configured maximum verbosity.
     { MethodType=Property }
     Function piLogLevel Returns Integer
         Function_Return (Private_piLogLevel(Self))
     End_Function
 
+    // Returns True when a message at iMessageLogLevel should be dispatched.
     Function LogLevelEnabled Integer iMessageLogLevel Returns Boolean
         Function_Return (piLogLevel(Self) >= iMessageLogLevel)
     End_Function
 
+    // Records a recoverable sink failure and invokes the OnLogError hook.
     Procedure ReportLogError String sSink String sMessage
         Set psLastError to (sSink + ": " + sMessage)
         Send OnLogError sSink sMessage
     End_Procedure
 
+    // Records a deterministic programming/configuration error and optionally
+    // exposes it through DataFlex's native error mechanism.
     Procedure ReportProgrammingLogError String sSink String sMessage
         String sError
 
@@ -56,10 +77,13 @@ Class cLogger is a cObject
         End
     End_Procedure
 
+    // Override to route logger failures to a safe diagnostic destination.
+    // Do not call this logger from the override; recursive writes are ignored.
     { MethodType=Event }
     Procedure OnLogError String sSink String sMessage
     End_Procedure
 
+    // Resolves the application name used by all workers.
     Function GetLoggerApplicationName Returns String
         Handle hoWorkspace
         String sName
@@ -79,10 +103,12 @@ Class cLogger is a cObject
         Function_Return sName
     End_Function
 
+    // Override to adjust the resolved application name before it is used.
     { MethodType=Event }
     Procedure OnGetLoggerApplicationName String ByRef sName
     End_Procedure
 
+    // Resolves the default event code for calls that pass zero.
     Function GetEventCode Returns Integer
         Integer iCode
 
@@ -91,10 +117,13 @@ Class cLogger is a cObject
         Function_Return iCode
     End_Function
 
+    // Override to adjust the resolved default event code.
     { MethodType=Event }
     Procedure OnGetEventCode Integer ByRef iCode
     End_Procedure
 
+    // Formats a DataFlex DateTime as an ISO 8601 timestamp with milliseconds.
+    // No timezone suffix is added because DataFlex DateTime has no zone data.
     Function FormatLogTimestamp DateTime dtTimeStamp Returns String
         String sTimeStamp
 
@@ -108,6 +137,7 @@ Class cLogger is a cObject
         Function_Return sTimeStamp
     End_Function
 
+    // Maps a DFLOG_* message level to its ECS/database text value.
     Function LogLevelName Integer iMessageLogLevel Returns String
         If (iMessageLogLevel = DFLOG_ERRORS) ;
             Function_Return "error"
@@ -117,6 +147,8 @@ Class cLogger is a cObject
         Function_Return "info"
     End_Function
 
+    // Validates that hoAdditionalFields is a JSON object and serializes it once
+    // for dispatch. The caller retains ownership of the object.
     Function SerializeAdditionalData Handle hoAdditionalFields Returns String
         Boolean bIsJsonObject bIsObject
         String sAdditionalData
@@ -140,6 +172,8 @@ Class cLogger is a cObject
         Function_Return sAdditionalData
     End_Function
 
+    // Returns an object member, replacing a missing or non-object member with
+    // a new JSON object. Used to merge logger-owned ECS fields safely.
     Function JsonObjectMember Handle hoJson String sMemberName Returns Handle
         Boolean bIsObject
         Handle hoMember
@@ -156,6 +190,9 @@ Class cLogger is a cObject
         Function_Return hoMember
     End_Function
 
+    // Builds one compact ECS JSON document for the JSON Lines file worker.
+    // Additional data is merged first; logger-owned core values then win while
+    // unrelated fields and sibling members remain intact.
     Function FormatLogLine DateTime dtTimeStamp String sCategory String sMessage Integer iCode Integer iMessageLogLevel String sTraceId String sAdditionalData Returns String
         Boolean bParsed
         Handle hoJson hoEcs hoLog hoService hoEvent hoTrace
@@ -201,6 +238,8 @@ Class cLogger is a cObject
         Function_Return sLine
     End_Function
 
+    // Rediscovers child workers, assigns this logger, initializes enabled
+    // workers, and deinitializes disabled workers.
     Procedure InitLogger
         Boolean bEnabled bReady
         Handle hoWorker
@@ -221,6 +260,9 @@ Class cLogger is a cObject
         Loop
     End_Procedure
 
+    // Writes one entry to every enabled worker. A zero code uses piEventCode;
+    // an invalid/omitted message level defaults to DFLOG_INFO. The optional
+    // JSON object is call-scoped and is never stored on the singleton logger.
     Procedure WriteLog DateTime dtTimeStamp String sCategory String sMessage Integer iOptCode Integer iOptMessageLogLevel String sOptTraceId Handle hoOptAdditionalFields
         Boolean bEnabled bOldErr bReady bWorkerEnabled
         Handle hoWorker
@@ -264,10 +306,12 @@ Class cLogger is a cObject
         Move bOldErr to Err
     End_Procedure
 
+    // Convenience wrapper around WriteLog using CurrentDateTime().
     Procedure LogMessage String sCategory String sMessage Integer iOptCode Integer iOptMessageLogLevel String sOptTraceId Handle hoOptAdditionalFields
         Send WriteLog (CurrentDateTime()) sCategory sMessage iOptCode iOptMessageLogLevel sOptTraceId hoOptAdditionalFields
     End_Procedure
 
+    // Initializes all declared child workers after object configuration is set.
     Procedure End_Construct_Object
         Forward Send End_Construct_Object
         Send InitLogger

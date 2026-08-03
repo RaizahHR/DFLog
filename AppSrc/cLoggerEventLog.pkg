@@ -6,6 +6,8 @@ Define C_DFLOG_EVENTLOG_ERROR_TYPE for |CI$0001
 Define C_DFLOG_EVENTLOG_WARNING_TYPE for |CI$0002
 Define C_DFLOG_EVENTLOG_INFORMATION_TYPE for |CI$0004
 
+// Native classic Event Log API bindings. The source is registered separately
+// by Scripts\Register-DFLogEventSource.ps1 during deployment.
 External_Function DFLogRegisterEventSource "RegisterEventSourceW" AdvApi32.dll ;
     Pointer lpUNCServerName ;
     WString lpSourceName ;
@@ -27,14 +29,18 @@ External_Function DFLogDeregisterEventSource "DeregisterEventSource" AdvApi32.dl
     Handle hEventLog ;
     Returns Boolean
 
+// Logging worker for Windows Event Viewer > Windows Logs > Application.
 Class cLoggerEventLog is a cLoggerWorker
     Procedure Construct_Object
         Forward Send Construct_Object
 
         Set psSinkName to "EventLog"
+
+        // Native RegisterEventSourceW handle retained for repeated writes.
         Property Handle phEventSource 0
     End_Procedure
 
+    // Releases the native event-source handle and marks the worker unavailable.
     Procedure CloseEventSource
         Boolean bClosed
         Handle hEventSource
@@ -47,10 +53,13 @@ Class cLoggerEventLog is a cLoggerWorker
         Set pbReady to False
     End_Procedure
 
+    // Releases the event-source handle when this worker is disabled.
     Procedure DeinitWorker
         Send CloseEventSource
     End_Procedure
 
+    // Verifies that the source exists beneath the Application event log and is
+    // associated with an EventMessageFile capable of rendering descriptions.
     Function EventSourceIsRegistered String sSource Returns Boolean
         Boolean bOpened bValueExists
         Handle hoRegistry
@@ -75,6 +84,7 @@ Class cLoggerEventLog is a cLoggerWorker
         Function_Return (bOpened and bValueExists and (Trim(sMessageFile) <> ""))
     End_Function
 
+    // Maps DFLOG_ERRORS/WARNINGS/INFO to native Windows event types.
     Function EventTypeForLogLevel Integer iMessageLogLevel Returns UShort
         If (iMessageLogLevel = DFLOG_ERRORS) ;
             Function_Return C_DFLOG_EVENTLOG_ERROR_TYPE
@@ -84,6 +94,7 @@ Class cLoggerEventLog is a cLoggerWorker
         Function_Return C_DFLOG_EVENTLOG_INFORMATION_TYPE
     End_Function
 
+    // Validates the application/source name and opens its native event handle.
     Function InitWorker Returns Boolean
         Handle hoLogger hEventSource
         Boolean bRegistered
@@ -126,6 +137,8 @@ Class cLoggerEventLog is a cLoggerWorker
         Function_Return True
     End_Function
 
+    // Writes one native Application event. Additional structured data remains
+    // compact JSON and is appended beneath the human-readable message.
     Procedure WriteLog DateTime dtTimeStamp String sCategory String sMessage Integer iCode Integer iMessageLogLevel String sTraceId String sAdditionalData
         Boolean bReady bWritten
         Handle hEventSource
@@ -161,6 +174,7 @@ Class cLoggerEventLog is a cLoggerWorker
         End
     End_Procedure
 
+    // Ensures the native source handle is released during object destruction.
     Procedure Destroy_Object
         Send CloseEventSource
         Forward Send Destroy_Object

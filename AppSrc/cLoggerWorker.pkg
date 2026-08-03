@@ -1,6 +1,6 @@
 Use VdfBase.pkg
 
-// Higher levels include all messages from lower levels.
+// Logger thresholds. Higher levels include all messages from lower levels.
 Define DFLOG_NONE for 0
 Define DFLOG_ERRORS for 1
 Define DFLOG_WARNINGS for 2
@@ -13,19 +13,27 @@ Register_Function GetLoggerApplicationName Returns String
 Register_Function LogLevelName Integer iMessageLogLevel Returns String
 Register_Function FormatLogLine DateTime dtTimeStamp String sCategory String sMessage Integer iCode Integer iMessageLogLevel String sTraceId String sAdditionalData Returns String
 
+// Private error handler used while a worker performs fallible I/O. It captures
+// DataFlex errors without replacing the application's normal error handler.
 Class cLoggerErrorTrap is a cObject
     Procedure Construct_Object
         Forward Send Construct_Object
 
+        // Number of the most recently trapped DataFlex error.
         Property Integer piLastErrorNumber 0
+
+        // Text of the most recently trapped DataFlex error.
         Property String psLastErrorMessage ""
     End_Procedure
 
+    // Clears the captured error before a new protected operation.
     Procedure Reset
         Set piLastErrorNumber to 0
         Set psLastErrorMessage to ""
     End_Procedure
 
+    // DataFlex error-system callback. Captures the error and sets Err so the
+    // worker can detect that its protected operation failed.
     Procedure Error_Report Integer iErrorNumber Integer iErrorLine String sErrorMessage
         Set piLastErrorNumber to iErrorNumber
         Set psLastErrorMessage to sErrorMessage
@@ -33,19 +41,29 @@ Class cLoggerErrorTrap is a cObject
     End_Procedure
 End_Class
 
+// Base contract for a logging destination. Custom workers inherit this class,
+// are declared beneath cLogger, and override InitWorker and WriteLog as needed.
 Class cLoggerWorker is a cObject
     Procedure Construct_Object
         Forward Send Construct_Object
 
+        // Parent cLogger assigned automatically during InitLogger.
         Property Handle phoLogger 0
+
+        // Short diagnostic name used as the prefix for worker errors.
         Property String psSinkName ""
+
+        // Controls initialization and dispatch without removing the child object.
         Property Boolean pbEnabled True
+
+        // Indicates whether the worker can currently accept WriteLog calls.
         Property Boolean pbReady False
 
         Object oLoggerErrorTrap is a cLoggerErrorTrap
         End_Object
     End_Procedure
 
+    // Reports a recoverable I/O or sink failure through the parent logger.
     Procedure ReportWorkerError String sMessage
         Handle hoLogger
 
@@ -54,6 +72,8 @@ Class cLoggerWorker is a cObject
             Send ReportLogError of hoLogger (psSinkName(Self)) sMessage
     End_Procedure
 
+    // Reports a deterministic worker configuration error through the parent
+    // logger, which may raise DFERR_PROGRAM when debug errors are enabled.
     Procedure ReportWorkerProgrammingError String sMessage
         Handle hoLogger
 
@@ -62,20 +82,29 @@ Class cLoggerWorker is a cObject
             Send ReportProgrammingLogError of hoLogger (psSinkName(Self)) sMessage
     End_Procedure
 
+    // Initializes the worker. The base implementation has no resources and
+    // simply marks the worker ready; override when a sink needs setup checks.
     Function InitWorker Returns Boolean
         Set pbReady to True
         Function_Return True
     End_Function
 
+    // Releases worker resources when disabled. Override for owned resources
+    // and leave pbReady False; the base implementation only resets readiness.
     Procedure DeinitWorker
         Set pbReady to False
     End_Procedure
 
+    // Internal discovery hook invoked by cLogger's Broadcast. All worker
+    // subclasses inherit this and therefore register without application code.
     { Visibility=Private }
     Procedure CollectLoggerWorker Handle[] ByRef hoaWorkers
         Move Self to hoaWorkers[SizeOfArray(hoaWorkers)]
     End_Procedure
 
+    // Worker dispatch contract. Every concrete worker must override this stub
+    // and write the supplied entry to its destination. sAdditionalData is an
+    // empty string or a validated, compact JSON object serialized by cLogger.
     Procedure WriteLog DateTime dtTimeStamp String sCategory String sMessage Integer iCode Integer iMessageLogLevel String sTraceId String sAdditionalData
     End_Procedure
 End_Class

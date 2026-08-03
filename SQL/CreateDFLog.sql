@@ -19,6 +19,9 @@ BEGIN
         [EventCode] int NOT NULL,
         [LogLevel] nvarchar(16) NOT NULL,
         [TraceId] nvarchar(128) NULL,
+        [AdditionalData] nvarchar(max) NULL,
+        CONSTRAINT [CK_DFLog_AdditionalData_IsJson]
+            CHECK ([AdditionalData] IS NULL OR ISJSON([AdditionalData]) = 1),
         CONSTRAINT [PK_DFLog] PRIMARY KEY CLUSTERED ([ID] ASC)
     );
 END;
@@ -34,6 +37,25 @@ IF COL_LENGTH(N'dbo.DFLog', N'TraceId') IS NULL
 BEGIN
     ALTER TABLE [dbo].[DFLog]
         ADD [TraceId] nvarchar(128) NULL;
+END;
+
+IF COL_LENGTH(N'dbo.DFLog', N'AdditionalData') IS NULL
+BEGIN
+    ALTER TABLE [dbo].[DFLog]
+        ADD [AdditionalData] nvarchar(max) NULL;
+END;
+
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM sys.check_constraints
+    WHERE [parent_object_id] = OBJECT_ID(N'[dbo].[DFLog]')
+      AND [name] = N'CK_DFLog_AdditionalData_IsJson'
+)
+BEGIN
+    ALTER TABLE [dbo].[DFLog] WITH CHECK
+        ADD CONSTRAINT [CK_DFLog_AdditionalData_IsJson]
+            CHECK ([AdditionalData] IS NULL OR ISJSON([AdditionalData]) = 1);
 END;
 
 IF OBJECT_ID(N'[dbo].[DFLog]', N'U') IS NOT NULL

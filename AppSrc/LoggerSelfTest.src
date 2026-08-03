@@ -1,10 +1,41 @@
 Use cApplication.pkg
 Use cLogger.pkg
 
+Class cLoggerSelfTestWorker is a cLoggerWorker
+    Procedure Construct_Object
+        Forward Send Construct_Object
+        Property Integer piWriteCount 0
+        Property String psAdditionalData ""
+    End_Procedure
+
+    Procedure WriteLog DateTime dtTimeStamp String sCategory String sMessage Integer iCode Integer iMessageLogLevel String sTraceId String sAdditionalData
+        Set piWriteCount to (piWriteCount(Self) + 1)
+        Set psAdditionalData to sAdditionalData
+    End_Procedure
+End_Class
+
 Object oApplication is a cApplication
 End_Object
 
 Object oLogger is a cLogger
+    Set psApplicationName to "DFLog self-test"
+
+    Object oDatabaseLogWorker is a cLoggerDatabase
+        Set pbEnabled to False
+    End_Object
+
+    Object oFileLogWorker is a cLoggerFile
+        Set pbEnabled to False
+        Set pbLogToSingleFile to True
+        Set psLogFileName to "self-test.jsonl"
+    End_Object
+
+    Object oEventLogWorker is a cLoggerEventLog
+        Set pbEnabled to False
+    End_Object
+
+    Object oCustomLogWorker is a cLoggerSelfTestWorker
+    End_Object
 End_Object
 
 Object oSelfTestErrorTrap is a cLoggerErrorTrap
@@ -13,10 +44,11 @@ End_Object
 Procedure RunLoggerSelfTest
     Boolean bExists bPassed bOldErr bReady bErrorsEnabled bWarningsEnabled bInfoEnabled bParsed
     Handle hoFileWorker hoDatabaseWorker hoEventLogWorker hoOldErrorHandler
-    Handle hoJson hoLog hoService hoEvent hoEcs hoTrace
+    Handle[] hoaWorkers
+    Handle hoJson hoLog hoService hoEvent hoEcs hoTrace hoAdditionalFields hoAdditionalEvent hoHttp hoResponse
     String sRoot sFolder sFile sLine sLastError sPassFile sFailureFile sNativeError
-    String sExpectedMessage sParsedMessage sTimestamp sLevel sService sAction sCode sVersion sTraceId
-    Integer iChannel iNativeError iConfiguredLogLevel iErrorEventType iWarningEventType iInformationEventType
+    String sExpectedMessage sParsedMessage sTimestamp sLevel sService sAction sCode sVersion sTraceId sOutcome sCustomAdditionalData
+    Integer iChannel iNativeError iConfiguredLogLevel iErrorEventType iWarningEventType iInformationEventType iCustomWriteCount iHttpStatus
 
     Get_Current_Directory to sRoot
     Move (sRoot + "\Data\LoggerSelfTest") to sFolder
@@ -27,22 +59,43 @@ Procedure RunLoggerSelfTest
     File_Exist sFailureFile bExists
     If (bExists) EraseFile sFailureFile
 
-    Set pbWriteToFile of oLogger to True
-    Set pbLogToSingleFile of oLogger to True
-    Set psLogFolderPath of oLogger to sFolder
-    Set psLogFileName of oLogger to "self-test.jsonl"
-    Set psApplicationName of oLogger to "DFLog self-test"
+    Set pbEnabled of oFileLogWorker to True
+    Set psLogFolderPath of oFileLogWorker to sFolder
     Send InitLogger of oLogger
-    Get phoLoggerFile of oLogger to hoFileWorker
-    Get phoLoggerDatabase of oLogger to hoDatabaseWorker
-    Get phoLoggerEventLog of oLogger to hoEventLogWorker
-    Get GetLogFilePath of oLogger to sFile
+    Get phoaLoggerWorkers of oLogger to hoaWorkers
+    Move oFileLogWorker to hoFileWorker
+    Move oDatabaseLogWorker to hoDatabaseWorker
+    Move oEventLogWorker to hoEventLogWorker
+    Get GetLogFilePath of oFileLogWorker to sFile
     File_Exist sFile bExists
     If (bExists) ;
         EraseFile sFile
 
     Move ("A message with" + Character(9) + "a tab and " + Character(34) + "quotes" + Character(34)) to sExpectedMessage
-    Send LogMessage of oLogger "Test.Action" sExpectedMessage 42 DFLOG_WARNINGS "trace-test-123"
+    Get Create (RefClass(cJsonObject)) to hoAdditionalFields
+    Get Create (RefClass(cJsonObject)) to hoAdditionalEvent
+    Get Create (RefClass(cJsonObject)) to hoHttp
+    Get Create (RefClass(cJsonObject)) to hoResponse
+    Send InitializeJsonType of hoAdditionalFields jsonTypeObject
+    Send InitializeJsonType of hoAdditionalEvent jsonTypeObject
+    Send InitializeJsonType of hoHttp jsonTypeObject
+    Send InitializeJsonType of hoResponse jsonTypeObject
+    Send SetMemberValue of hoAdditionalEvent "outcome" jsonTypeString "success"
+    Send SetMemberValue of hoResponse "status_code" jsonTypeInteger 201
+    Send SetMember of hoHttp "response" hoResponse
+    Send SetMember of hoAdditionalFields "http" hoHttp
+    Send SetMember of hoAdditionalFields "event" hoAdditionalEvent
+
+    Send LogMessage of oLogger "Test.Action" sExpectedMessage 42 DFLOG_WARNINGS "trace-test-123" hoAdditionalFields
+    Get piWriteCount of oCustomLogWorker to iCustomWriteCount
+    Get psAdditionalData of oCustomLogWorker to sCustomAdditionalData
+
+    Send Destroy of hoResponse
+    Send Destroy of hoHttp
+    Send Destroy of hoAdditionalEvent
+    Send Destroy of hoAdditionalFields
+    Move 0 to hoResponse
+    Move 0 to hoHttp
 
     Get psLastError of oLogger to sLastError
     File_Exist sFile bExists
@@ -68,21 +121,33 @@ Procedure RunLoggerSelfTest
         Get Member of hoJson "event" to hoEvent
         Get Member of hoJson "ecs" to hoEcs
         Get Member of hoJson "trace" to hoTrace
+        Get Member of hoJson "http" to hoHttp
+        Get Member of hoHttp "response" to hoResponse
         Get MemberValue of hoLog "level" to sLevel
         Get MemberValue of hoService "name" to sService
         Get MemberValue of hoEvent "action" to sAction
         Get MemberValue of hoEvent "code" to sCode
+        Get MemberValue of hoEvent "outcome" to sOutcome
         Get MemberValue of hoEcs "version" to sVersion
         Get MemberValue of hoTrace "id" to sTraceId
+        Get MemberValue of hoResponse "status_code" to iHttpStatus
     End
 
-    Move ((hoFileWorker <> 0) and (hoDatabaseWorker = 0) and (hoEventLogWorker = 0) and ;
+    Move ((SizeOfArray(hoaWorkers) = 4) and (iCustomWriteCount = 1) and ;
+        (Pos(Character(34) + "status_code" + Character(34) + ":201", sCustomAdditionalData) > 0) and ;
+        (hoFileWorker <> 0) and ;
+        (hoDatabaseWorker <> 0) and (hoEventLogWorker <> 0) and ;
         bExists and bParsed and (sLastError = "") and (Pos("T", sTimestamp) = 11) and ;
         (sParsedMessage = sExpectedMessage) and (sLevel = "warning") and ;
         (sService = "DFLog self-test") and (sAction = "Test.Action") and ;
-        (sCode = "42") and (sVersion = C_DFLOG_ECS_VERSION) and ;
+        (sCode = "42") and (sOutcome = "success") and (iHttpStatus = 201) and ;
+        (sVersion = C_DFLOG_ECS_VERSION) and ;
         (sTraceId = "trace-test-123")) to bPassed
 
+    If (hoResponse <> 0) ;
+        Send Destroy of hoResponse
+    If (hoHttp <> 0) ;
+        Send Destroy of hoHttp
     If (hoTrace <> 0) ;
         Send Destroy of hoTrace
     If (hoEcs <> 0) ;
@@ -96,10 +161,10 @@ Procedure RunLoggerSelfTest
     Send Destroy of hoJson
 
     If (bPassed) Begin
-        Set pbWriteToFile of oLogger to False
+        Set pbEnabled of oFileLogWorker to False
         Send InitLogger of oLogger
-        Get phoLoggerFile of oLogger to hoFileWorker
-        Move (hoFileWorker = 0) to bPassed
+        Get pbReady of oFileLogWorker to bReady
+        Move (not(bReady)) to bPassed
     End
 
     If (bPassed) Begin
@@ -120,9 +185,8 @@ Procedure RunLoggerSelfTest
 
     If (bPassed) Begin
         Set pbDebugErrorsEnabled of oLogger to False
-        Set pbWriteToEventLog of oLogger to True
+        Set pbEnabled of oEventLogWorker to True
         Send InitLogger of oLogger
-        Get phoLoggerEventLog of oLogger to hoEventLogWorker
         Get pbReady of hoEventLogWorker to bReady
         Get psLastError of oLogger to sLastError
         Get EventTypeForLogLevel of hoEventLogWorker DFLOG_ERRORS to iErrorEventType
@@ -139,19 +203,18 @@ Procedure RunLoggerSelfTest
             Else ;
                 Move (Pos("is not registered with an EventMessageFile", sLastError) > 0) to bPassed
         End
-        Set pbWriteToEventLog of oLogger to False
+        Set pbEnabled of oEventLogWorker to False
         Send InitLogger of oLogger
     End
 
     If (bPassed) Begin
         Set pbDebugErrorsEnabled of oLogger to False
-        Set pbWriteToDatabase of oLogger to True
+        Set pbEnabled of oDatabaseLogWorker to True
         Send InitLogger of oLogger
-        Get phoLoggerDatabase of oLogger to hoDatabaseWorker
         Get psLastError of oLogger to sLastError
         Move ((hoDatabaseWorker <> 0) and ;
             (Pos("psConnectionId is empty.", sLastError) > 0)) to bPassed
-        Set pbWriteToDatabase of oLogger to False
+        Set pbEnabled of oDatabaseLogWorker to False
         Send InitLogger of oLogger
     End
 
@@ -163,7 +226,7 @@ Procedure RunLoggerSelfTest
         Move False to Err
 
         Set pbDebugErrorsEnabled of oLogger to True
-        Set pbWriteToDatabase of oLogger to True
+        Set pbEnabled of oDatabaseLogWorker to True
         Send InitLogger of oLogger
         Get piLastErrorNumber of oSelfTestErrorTrap to iNativeError
         Get psLastErrorMessage of oSelfTestErrorTrap to sNativeError
@@ -172,7 +235,7 @@ Procedure RunLoggerSelfTest
         Move bOldErr to Err
         Move ((iNativeError = DFERR_PROGRAM) and ;
             (Pos("DFLog Database: psConnectionId is empty.", sNativeError) > 0)) to bPassed
-        Set pbWriteToDatabase of oLogger to False
+        Set pbEnabled of oDatabaseLogWorker to False
         Send InitLogger of oLogger
     End
 

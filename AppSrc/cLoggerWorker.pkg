@@ -11,10 +11,7 @@ Register_Procedure ReportLogError String sSink String sMessage
 Register_Procedure ReportProgrammingLogError String sSink String sMessage
 Register_Function GetLoggerApplicationName Returns String
 Register_Function LogLevelName Integer iMessageLogLevel Returns String
-Register_Function FormatLogLine DateTime dtTimeStamp String sCategory String sMessage Integer iCode Integer iMessageLogLevel String sTraceId Returns String
-Register_Function GetLogDdoHandle Returns Handle
-Register_Procedure OnGetLogFolderPath String ByRef sPath
-Register_Procedure OnGetLogFilePath String ByRef sPath
+Register_Function FormatLogLine DateTime dtTimeStamp String sCategory String sMessage Integer iCode Integer iMessageLogLevel String sTraceId String sAdditionalData Returns String
 
 Class cLoggerErrorTrap is a cObject
     Procedure Construct_Object
@@ -42,6 +39,7 @@ Class cLoggerWorker is a cObject
 
         Property Handle phoLogger 0
         Property String psSinkName ""
+        Property Boolean pbEnabled True
         Property Boolean pbReady False
 
         Object oLoggerErrorTrap is a cLoggerErrorTrap
@@ -69,6 +67,15 @@ Class cLoggerWorker is a cObject
         Function_Return True
     End_Function
 
-    Procedure WriteLog DateTime dtTimeStamp String sCategory String sMessage Integer iCode Integer iMessageLogLevel String sTraceId
+    Procedure DeinitWorker
+        Set pbReady to False
+    End_Procedure
+
+    { Visibility=Private }
+    Procedure CollectLoggerWorker Handle[] ByRef hoaWorkers
+        Move Self to hoaWorkers[SizeOfArray(hoaWorkers)]
+    End_Procedure
+
+    Procedure WriteLog DateTime dtTimeStamp String sCategory String sMessage Integer iCode Integer iMessageLogLevel String sTraceId String sAdditionalData
     End_Procedure
 End_Class

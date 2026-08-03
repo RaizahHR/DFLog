@@ -15,10 +15,11 @@ DataFlex's native `Error DFERR_PROGRAM` command. Set `pbDebugErrorsEnabled` to
 `False` to keep those errors silent while still capturing them in
 `psLastError` and `OnLogError`.
 
-`cLogger` is only the public API and lifecycle owner. `InitLogger` dynamically
-creates the enabled workers and stores them in `phoLoggerDatabase`,
-`phoLoggerFile`, and `phoLoggerEventLog`. Calling `InitLogger` again copies
-changed settings to existing workers and destroys workers that were disabled.
+`cLogger` is only the public API and lifecycle owner. Logging destinations are
+child objects derived from `cLoggerWorker`. During `InitLogger`, the logger
+discovers those children, stores their handles in `phoaLoggerWorkers`, assigns
+itself as their logger, and initializes every enabled worker. `WriteLog` then
+dispatches the entry to that list without knowing which sink types it contains.
 
 The implementation is split by responsibility:
 
@@ -40,14 +41,17 @@ Object oLogger is a cLogger
     Set psApplicationName to "Package Manager Server"
     Set piLogLevel to DFLOG_INFO
 
-    Set pbWriteToDatabase to True
-    Set psConnectionId to "PkgMngrSrvr"
-    Set psLogTable to "dbo.DFLog"
+    Object oDatabaseLogWorker is a cLoggerDatabase
+        Set psConnectionId to "PkgMngrSrvr"
+        Set psLogTable to "dbo.DFLog"
+    End_Object
 
-    Set pbWriteToFile to True
-    Set psLogFolderPath to "Logs" // relative to the workspace root
+    Object oFileLogWorker is a cLoggerFile
+        Set psLogFolderPath to "Logs" // relative to the workspace root
+    End_Object
 
-    Set pbWriteToEventLog to True
+    Object oEventLogWorker is a cLoggerEventLog
+    End_Object
 End_Object
 
 Send LogMessage of oLogger "Startup" "The application started." 100 DFLOG_INFO
@@ -55,19 +59,63 @@ Send WriteLog of oLogger (CurrentDateTime()) "package.push" "Package rejected." 
 ```
 
 `piLogLevel` controls verbosity for every enabled sink: `DFLOG_NONE`,
-`DFLOG_ERRORS`, `DFLOG_WARNINGS`, or `DFLOG_INFO`. The penultimate `WriteLog`
-or `LogMessage` argument is the message level and the final optional argument
-is the trace ID. A message is written only when `piLogLevel` is greater than or
-equal to its level. Calls that omit both default to `DFLOG_INFO` with no trace
-ID.
+`DFLOG_ERRORS`, `DFLOG_WARNINGS`, or `DFLOG_INFO`. The final optional arguments
+to `WriteLog` and `LogMessage` are the trace ID and a `cJsonObject` containing
+additional fields. A message is written only when `piLogLevel` is greater than
+or equal to its level. Calls that omit these arguments default to `DFLOG_INFO`
+with no trace ID or additional fields.
 
 The same message level becomes the Windows event type and the ECS `log.level`:
 errors are `error`, warnings are `warning`, and informational messages are
 `info`.
 
 Properties set inside the object declaration are applied before the automatic
-`InitLogger` call. If configuration changes later at runtime, send
-`InitLogger` once to resynchronize the workers.
+`InitLogger` call. Worker properties live on their respective worker objects.
+All workers default to `pbEnabled=True`; set it to `False` to keep a declared
+worker in the list without initializing or writing through it. If workers are
+added or removed dynamically, send `InitLogger` once to rebuild the list. Send
+it after other runtime configuration changes when immediate reinitialization is
+required.
+
+To add another sink, derive a class from `cLoggerWorker`, implement
+`InitWorker` and `WriteLog`, and declare it as another child of `oLogger`.
+Override `DeinitWorker` as well if the sink owns resources that must be closed
+when it is disabled. The base class supplies list discovery, `pbEnabled`,
+`pbReady`, `phoLogger`, and the shared error-reporting helpers; no change to
+`cLogger` is required.
+
+## Additional structured data
+
+Pass a `cJsonObject` as the final argument to add call-specific structured
+data. The caller owns the object and may destroy it as soon as the synchronous
+logging call returns:
+
+```dataflex
+Boolean bParsed
+Handle hoFields
+
+Get Create (RefClass(cJsonObject)) to hoFields
+Get ParseString of hoFields ;
+    '{"http":{"request":{"method":"POST"},"response":{"status_code":201}}}' ;
+    to bParsed
+
+If (bParsed) ;
+    Send LogMessage of oLogger "api.package.push" "Package accepted." ;
+        100 DFLOG_INFO sTraceId hoFields
+
+Send Destroy of hoFields
+```
+
+The file worker merges this object into the ECS document root, preserving
+types and nested field sets. Logger-owned values override the corresponding
+supplied values: `@timestamp`, `message`, `ecs.version`, `log.level`,
+`service.name`, `event.action`, `event.code`, and `trace.id`. Other members in
+those objects, such as `event.outcome`, are retained.
+
+Use native ECS fields where available, such as
+`http.response.status_code`. Place application-specific nested data under a
+stable custom namespace. Because the logger is normally a singleton, keep
+additional data on the individual call rather than in logger properties.
 
 When `pbLogToSingleFile` is false (the default), files are named
 `DFLog-yyyy-mm-dd.jsonl`. Every physical line is one independent JSON object:
@@ -89,9 +137,10 @@ UTC timestamps are required.
 ## Database setup
 
 Run [`SQL/CreateDFLog.sql`](SQL/CreateDFLog.sql) against the target database.
-The script is safe to run repeatedly and adds `LogLevel` and `TraceId` to an
-existing DFLog table. Run it before deploying this version. `pbAutoCreateTable`
-also lets the logger create a missing table at startup, but production
+The script is safe to run repeatedly and adds `LogLevel`, `TraceId`, and the
+JSON-validated `AdditionalData` column to an existing DFLog table. Run it
+before deploying this version. `pbAutoCreateTable` also lets the logger create
+a missing table at startup, but production
 identities should normally receive only `INSERT` permission and use the script
 during deployment.
 
@@ -108,8 +157,9 @@ whose main table has these fields:
 - `Message`
 - `EventCode`
 
-The optional DDO fields `LogLevel` and `TraceId` are populated when present.
-The SQL table always contains them. These relational columns map to the JSON
+The optional DDO fields `LogLevel`, `TraceId`, and `AdditionalData` are
+populated when present. The SQL table always contains them. `AdditionalData`
+stores the same compact JSON object supplied to the logger. These relational columns map to the JSON
 fields as follows: `LoggedAt` to `@timestamp`, `Application` to `service.name`,
 `Category` to `event.action`, `EventCode` to `event.code`, `LogLevel` to
 `log.level`, and `TraceId` to `trace.id`. The fixed ECS version belongs to the
@@ -117,14 +167,14 @@ file contract and is not repeated in every database row.
 
 The DDO path is useful when a consuming application already maintains a DF/INT
 table definition. Override `GetDefaultLogDataDictionary` or
-`OnGetLogDdoHandle` to supply it lazily.
+`OnGetLogDdoHandle` on the `cLoggerDatabase` worker to supply it lazily.
 
 ## Windows Application event log
 
-Set `pbWriteToEventLog` to `True` to write entries to **Windows Event Viewer >
-Windows Logs > Application**. The logger application name is used as the event
-source. Entries are written as native Information, Warning, or Error events
-through the Windows Event Log API.
+Declare an enabled `cLoggerEventLog` child to write entries to **Windows Event
+Viewer > Windows Logs > Application**. The logger application name is used as
+the event source. Entries are written as native Information, Warning, or Error
+events through the Windows Event Log API.
 
 Register each application name once from an **elevated Windows PowerShell**
 session before enabling this sink:
@@ -138,7 +188,9 @@ The script registers each source in the Application log and associates it with
 Windows' generic event-message resource. The caller's `iCode` becomes the Event
 ID, its log level becomes the native Windows event type, and the description is
 only the original message. Windows already stores the timestamp and application
-source as event metadata, so the JSON envelope is used only for the file sink.
+source as event metadata. When additional data is supplied, the Event Log
+worker appends its compact JSON to the readable description under an
+`Additional data:` label.
 
 Source registration changes HKLM and therefore belongs in installation or
 deployment, not application startup. Run the script again if

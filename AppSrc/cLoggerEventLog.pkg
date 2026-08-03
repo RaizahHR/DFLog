@@ -47,6 +47,10 @@ Class cLoggerEventLog is a cLoggerWorker
         Set pbReady to False
     End_Procedure
 
+    Procedure DeinitWorker
+        Send CloseEventSource
+    End_Procedure
+
     Function EventSourceIsRegistered String sSource Returns Boolean
         Boolean bOpened bValueExists
         Handle hoRegistry
@@ -122,11 +126,12 @@ Class cLoggerEventLog is a cLoggerWorker
         Function_Return True
     End_Function
 
-    Procedure WriteLog DateTime dtTimeStamp String sCategory String sMessage Integer iCode Integer iMessageLogLevel String sTraceId
+    Procedure WriteLog DateTime dtTimeStamp String sCategory String sMessage Integer iCode Integer iMessageLogLevel String sTraceId String sAdditionalData
         Boolean bReady bWritten
         Handle hEventSource
         Integer iWindowsError
         Pointer pMessage
+        String sEventMessage
         UShort wEventType
         WString wMessage
 
@@ -139,7 +144,12 @@ Class cLoggerEventLog is a cLoggerWorker
         Get phEventSource to hEventSource
         Get EventTypeForLogLevel iMessageLogLevel to wEventType
 
-        Move sMessage to wMessage
+        Move sMessage to sEventMessage
+        If (Trim(sAdditionalData) <> "") ;
+            Move (sEventMessage + Character(13) + Character(10) + Character(13) + Character(10) + ;
+                "Additional data: " + sAdditionalData) to sEventMessage
+
+        Move sEventMessage to wMessage
         Move (AddressOf(wMessage)) to pMessage
         Move (DFLogReportEvent(hEventSource, wEventType, 0, iCode, ;
             0, 1, 0, AddressOf(pMessage), 0)) to bWritten

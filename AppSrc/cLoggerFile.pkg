@@ -12,6 +12,14 @@ Class cLoggerFile is a cLoggerWorker
         Property Boolean pbLogToSingleFile False
     End_Procedure
 
+    { MethodType=Event }
+    Procedure OnGetLogFolderPath String ByRef sPath
+    End_Procedure
+
+    { MethodType=Event }
+    Procedure OnGetLogFilePath String ByRef sPath
+    End_Procedure
+
     Function WorkspaceRoot Returns String
         Handle hoWorkspace
         String sRoot
@@ -32,7 +40,6 @@ Class cLoggerFile is a cLoggerWorker
 
     Function GetLogFolderPath Returns String
         Boolean bAbsolute
-        Handle hoLogger
         String sPath sRoot
 
         Get psLogFolderPath to sPath
@@ -46,9 +53,7 @@ Class cLoggerFile is a cLoggerWorker
         End
         Move (FullPathName(sPath)) to sPath
 
-        Get phoLogger to hoLogger
-        If (hoLogger <> 0) ;
-            Send OnGetLogFolderPath of hoLogger (&sPath)
+        Send OnGetLogFolderPath (&sPath)
         Function_Return sPath
     End_Function
 
@@ -62,7 +67,6 @@ Class cLoggerFile is a cLoggerWorker
     End_Function
 
     Function GetLogFilePathForDateTime DateTime dtTimeStamp Returns String
-        Handle hoLogger
         String sFolder sFile sDate
 
         Get GetLogFolderPath to sFolder
@@ -81,9 +85,7 @@ Class cLoggerFile is a cLoggerWorker
         End
 
         Move (sFolder - "\" - sFile) to sFile
-        Get phoLogger to hoLogger
-        If (hoLogger <> 0) ;
-            Send OnGetLogFilePath of hoLogger (&sFile)
+        Send OnGetLogFilePath (&sFile)
         Function_Return sFile
     End_Function
 
@@ -139,7 +141,7 @@ Class cLoggerFile is a cLoggerWorker
         Function_Return bExists
     End_Function
 
-    Procedure WriteLog DateTime dtTimeStamp String sCategory String sMessage Integer iCode Integer iMessageLogLevel String sTraceId
+    Procedure WriteLog DateTime dtTimeStamp String sCategory String sMessage Integer iCode Integer iMessageLogLevel String sTraceId String sAdditionalData
         Boolean bOldErr bReady bOpened bFailed
         Handle hoLogger hoOldErrorHandler
         Integer iChannel
@@ -153,7 +155,7 @@ Class cLoggerFile is a cLoggerWorker
 
         Get phoLogger to hoLogger
         Get GetLogFilePathForDateTime dtTimeStamp to sPath
-        Get FormatLogLine of hoLogger dtTimeStamp sCategory sMessage iCode iMessageLogLevel sTraceId to sLine
+        Get FormatLogLine of hoLogger dtTimeStamp sCategory sMessage iCode iMessageLogLevel sTraceId sAdditionalData to sLine
         Move (Seq_New_Channel()) to iChannel
         If (iChannel = DF_SEQ_CHANNEL_NOT_AVAILABLE) Begin
             Send ReportWorkerError "No sequential I/O channel is available."

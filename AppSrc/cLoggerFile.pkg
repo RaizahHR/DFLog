@@ -1,0 +1,192 @@
+Use cLoggerWorker.pkg
+Use Seq_Chnl.pkg
+
+Class cLoggerFile is a cLoggerWorker
+    Procedure Construct_Object
+        Forward Send Construct_Object
+
+        Set psSinkName to "File"
+
+        Property String psLogFolderPath ""
+        Property String psLogFileName "DFLog.jsonl"
+        Property Boolean pbLogToSingleFile False
+    End_Procedure
+
+    Function WorkspaceRoot Returns String
+        Handle hoWorkspace
+        String sRoot
+
+        If (ghoApplication <> 0) Begin
+            Get phoWorkspace of ghoApplication to hoWorkspace
+            If (hoWorkspace <> 0) ;
+                Get psHome of hoWorkspace to sRoot
+        End
+        If (sRoot = "") ;
+            Get_Current_Directory to sRoot
+        Function_Return sRoot
+    End_Function
+
+    Function IsAbsolutePath String sPath Returns Boolean
+        Function_Return ((Mid(sPath, 1, 2) = ":") or (Left(sPath, 2) = "\\") or (Left(sPath, 1) = "\"))
+    End_Function
+
+    Function GetLogFolderPath Returns String
+        Boolean bAbsolute
+        Handle hoLogger
+        String sPath sRoot
+
+        Get psLogFolderPath to sPath
+        If (Trim(sPath) = "") ;
+            Move "Logs" to sPath
+
+        Get IsAbsolutePath sPath to bAbsolute
+        If (not(bAbsolute)) Begin
+            Get WorkspaceRoot to sRoot
+            Move (sRoot - "\" - sPath) to sPath
+        End
+        Move (FullPathName(sPath)) to sPath
+
+        Get phoLogger to hoLogger
+        If (hoLogger <> 0) ;
+            Send OnGetLogFolderPath of hoLogger (&sPath)
+        Function_Return sPath
+    End_Function
+
+    Function FormatLogDate DateTime dtTimeStamp Returns String
+        String sDate
+
+        Move (String(DateGetYear(dtTimeStamp))) to sDate
+        Move (sDate + "-" + Right("0" + String(DateGetMonth(dtTimeStamp)), 2)) to sDate
+        Move (sDate + "-" + Right("0" + String(DateGetDay(dtTimeStamp)), 2)) to sDate
+        Function_Return sDate
+    End_Function
+
+    Function GetLogFilePathForDateTime DateTime dtTimeStamp Returns String
+        Handle hoLogger
+        String sFolder sFile sDate
+
+        Get GetLogFolderPath to sFolder
+        Get psLogFileName to sFile
+        If (Trim(sFile) = "") ;
+            Move "DFLog.jsonl" to sFile
+
+        If (not(pbLogToSingleFile(Self))) Begin
+            Get FormatLogDate dtTimeStamp to sDate
+            If (Lowercase(Right(sFile, 6)) = ".jsonl") ;
+                Move (Left(sFile, Length(sFile) - 6) + "-" + sDate + ".jsonl") to sFile
+            Else If (Lowercase(Right(sFile, 4)) = ".log") ;
+                Move (Left(sFile, Length(sFile) - 4) + "-" + sDate + ".log") to sFile
+            Else ;
+                Move (sFile + "-" + sDate + ".jsonl") to sFile
+        End
+
+        Move (sFolder - "\" - sFile) to sFile
+        Get phoLogger to hoLogger
+        If (hoLogger <> 0) ;
+            Send OnGetLogFilePath of hoLogger (&sFile)
+        Function_Return sFile
+    End_Function
+
+    Function GetLogFilePath Returns String
+        String sPath
+
+        Get GetLogFilePathForDateTime (CurrentDateTime()) to sPath
+        Function_Return sPath
+    End_Function
+
+    Function LogFolderExists Returns Boolean
+        String sPath
+
+        Get GetLogFolderPath to sPath
+        Function_Return (IsDirectory(sPath))
+    End_Function
+
+    Function CreateLogFolder Returns Boolean
+        Boolean bOldErr bCreated
+        Handle hoOldErrorHandler
+        String sPath sError
+
+        Get GetLogFolderPath to sPath
+        Move Err to bOldErr
+        Move Error_Object_Id to hoOldErrorHandler
+        Send Reset of oLoggerErrorTrap
+        Move oLoggerErrorTrap to Error_Object_Id
+        Move False to Err
+
+        Move (CreateDirectoryRecursive(sPath)) to bCreated
+
+        Move hoOldErrorHandler to Error_Object_Id
+        Move bOldErr to Err
+
+        If (not(bCreated)) Begin
+            Get psLastErrorMessage of oLoggerErrorTrap to sError
+            If (sError = "") ;
+                Move ("Unable to create " + sPath) to sError
+            Send ReportWorkerError sError
+        End
+
+        Function_Return bCreated
+    End_Function
+
+    Function InitWorker Returns Boolean
+        Boolean bExists bCreated
+
+        Get LogFolderExists to bExists
+        If (not(bExists)) ;
+            Get CreateLogFolder to bCreated
+        Move (bExists or bCreated) to bExists
+        Set pbReady to bExists
+        Function_Return bExists
+    End_Function
+
+    Procedure WriteLog DateTime dtTimeStamp String sCategory String sMessage Integer iCode Integer iMessageLogLevel String sTraceId
+        Boolean bOldErr bReady bOpened bFailed
+        Handle hoLogger hoOldErrorHandler
+        Integer iChannel
+        String sPath sLine sError
+
+        Get pbReady to bReady
+        If (not(bReady)) ;
+            Get InitWorker to bReady
+        If (not(bReady)) ;
+            Procedure_Return
+
+        Get phoLogger to hoLogger
+        Get GetLogFilePathForDateTime dtTimeStamp to sPath
+        Get FormatLogLine of hoLogger dtTimeStamp sCategory sMessage iCode iMessageLogLevel sTraceId to sLine
+        Move (Seq_New_Channel()) to iChannel
+        If (iChannel = DF_SEQ_CHANNEL_NOT_AVAILABLE) Begin
+            Send ReportWorkerError "No sequential I/O channel is available."
+            Procedure_Return
+        End
+
+        Move Err to bOldErr
+        Move Error_Object_Id to hoOldErrorHandler
+        Send Reset of oLoggerErrorTrap
+        Move oLoggerErrorTrap to Error_Object_Id
+        Move False to Err
+
+        Append_Output Channel iChannel ("width: 65535:" + sPath)
+        Move (not(Err)) to bOpened
+        If (bOpened) Begin
+            Writeln Channel iChannel sLine
+            Move Err to bFailed
+            Close_Output Channel iChannel
+            Move (bFailed or Err) to bFailed
+        End
+        Else ;
+            Move True to bFailed
+
+        Send Seq_Release_Channel iChannel
+        Move hoOldErrorHandler to Error_Object_Id
+        Move bOldErr to Err
+
+        If (bFailed) Begin
+            Set pbReady to False
+            Get psLastErrorMessage of oLoggerErrorTrap to sError
+            If (sError = "") ;
+                Move ("Unable to append to " + sPath) to sError
+            Send ReportWorkerError sError
+        End
+    End_Procedure
+End_Class

@@ -8,5 +8,5 @@ BitmapPath=Bitmaps
 IdeSrcPath=IdeSrc
 HelpPath=Help
 ProgramPath=Programs
-FileList=Data\Filelist.cfg
+FileList=
 Description=All purpose Logging framework for DataFlex applications

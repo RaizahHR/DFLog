@@ -1,0 +1,158 @@
+Use cLoggerWorker.pkg
+Use Winkern.pkg
+Use cRegistry.pkg
+
+Define C_DFLOG_EVENTLOG_ERROR_TYPE for |CI$0001
+Define C_DFLOG_EVENTLOG_WARNING_TYPE for |CI$0002
+Define C_DFLOG_EVENTLOG_INFORMATION_TYPE for |CI$0004
+
+External_Function DFLogRegisterEventSource "RegisterEventSourceW" AdvApi32.dll ;
+    Pointer lpUNCServerName ;
+    WString lpSourceName ;
+    Returns Handle
+
+External_Function DFLogReportEvent "ReportEventW" AdvApi32.dll ;
+    Handle hEventLog ;
+    UShort wType ;
+    UShort wCategory ;
+    DWord dwEventID ;
+    Pointer lpUserSid ;
+    UShort wNumStrings ;
+    DWord dwDataSize ;
+    Pointer lpStrings ;
+    Pointer lpRawData ;
+    Returns Boolean
+
+External_Function DFLogDeregisterEventSource "DeregisterEventSource" AdvApi32.dll ;
+    Handle hEventLog ;
+    Returns Boolean
+
+Class cLoggerEventLog is a cLoggerWorker
+    Procedure Construct_Object
+        Forward Send Construct_Object
+
+        Set psSinkName to "EventLog"
+        Property Handle phEventSource 0
+    End_Procedure
+
+    Procedure CloseEventSource
+        Boolean bClosed
+        Handle hEventSource
+
+        Get phEventSource to hEventSource
+        If (hEventSource <> 0) ;
+            Move (DFLogDeregisterEventSource(hEventSource)) to bClosed
+
+        Set phEventSource to 0
+        Set pbReady to False
+    End_Procedure
+
+    Function EventSourceIsRegistered String sSource Returns Boolean
+        Boolean bOpened bValueExists
+        Handle hoRegistry
+        String sKey sMessageFile
+
+        Get Create (RefClass(cRegistry)) to hoRegistry
+        If (hoRegistry = 0) ;
+            Function_Return False
+
+        Set phRootKey of hoRegistry to HKEY_LOCAL_MACHINE
+        Set pfAccessRights of hoRegistry to KEY_READ
+        Move ("SYSTEM\CurrentControlSet\Services\EventLog\Application\" + sSource) to sKey
+        Get OpenKey of hoRegistry sKey to bOpened
+        If (bOpened) Begin
+            Get ValueExists of hoRegistry "EventMessageFile" to bValueExists
+            If (bValueExists) ;
+                Get ReadString of hoRegistry "EventMessageFile" to sMessageFile
+            Send CloseKey of hoRegistry
+        End
+        Send Destroy of hoRegistry
+
+        Function_Return (bOpened and bValueExists and (Trim(sMessageFile) <> ""))
+    End_Function
+
+    Function EventTypeForLogLevel Integer iMessageLogLevel Returns UShort
+        If (iMessageLogLevel = DFLOG_ERRORS) ;
+            Function_Return C_DFLOG_EVENTLOG_ERROR_TYPE
+        If (iMessageLogLevel = DFLOG_WARNINGS) ;
+            Function_Return C_DFLOG_EVENTLOG_WARNING_TYPE
+
+        Function_Return C_DFLOG_EVENTLOG_INFORMATION_TYPE
+    End_Function
+
+    Function InitWorker Returns Boolean
+        Handle hoLogger hEventSource
+        Boolean bRegistered
+        Integer iWindowsError
+        String sSource
+        WString wSource
+
+        Send CloseEventSource
+
+        Get phoLogger to hoLogger
+        If (hoLogger = 0) Begin
+            Send ReportWorkerProgrammingError "No logger is assigned to the event-log worker."
+            Function_Return False
+        End
+
+        Get GetLoggerApplicationName of hoLogger to sSource
+        If (Pos("\", sSource) > 0) Begin
+            Send ReportWorkerProgrammingError "The Windows event source name cannot contain a backslash."
+            Function_Return False
+        End
+
+        Get EventSourceIsRegistered sSource to bRegistered
+        If (not(bRegistered)) Begin
+            Send ReportWorkerProgrammingError ("The Windows Application event source '" + sSource + ;
+                "' is not registered with an EventMessageFile. Run Scripts\Register-DFLogEventSource.ps1 " + ;
+                "from an elevated Windows PowerShell session.")
+            Function_Return False
+        End
+
+        Move sSource to wSource
+        Move (DFLogRegisterEventSource(0, wSource)) to hEventSource
+        If (hEventSource = 0) Begin
+            Move (GetLastError()) to iWindowsError
+            Send ReportWorkerError ("RegisterEventSourceW failed with Windows error " + String(iWindowsError) + ".")
+            Function_Return False
+        End
+
+        Set phEventSource to hEventSource
+        Set pbReady to True
+        Function_Return True
+    End_Function
+
+    Procedure WriteLog DateTime dtTimeStamp String sCategory String sMessage Integer iCode Integer iMessageLogLevel String sTraceId
+        Boolean bReady bWritten
+        Handle hEventSource
+        Integer iWindowsError
+        Pointer pMessage
+        UShort wEventType
+        WString wMessage
+
+        Get pbReady to bReady
+        If (not(bReady)) ;
+            Get InitWorker to bReady
+        If (not(bReady)) ;
+            Procedure_Return
+
+        Get phEventSource to hEventSource
+        Get EventTypeForLogLevel iMessageLogLevel to wEventType
+
+        Move sMessage to wMessage
+        Move (AddressOf(wMessage)) to pMessage
+        Move (DFLogReportEvent(hEventSource, wEventType, 0, iCode, ;
+            0, 1, 0, AddressOf(pMessage), 0)) to bWritten
+
+        If (not(bWritten)) Begin
+            Move (GetLastError()) to iWindowsError
+            Send CloseEventSource
+            Send ReportWorkerError ("ReportEventW failed with Windows error " + String(iWindowsError) + ".")
+        End
+    End_Procedure
+
+    Procedure Destroy_Object
+        Send CloseEventSource
+        Forward Send Destroy_Object
+    End_Procedure
+End_Class

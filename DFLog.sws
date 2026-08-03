@@ -1,4 +1,16 @@
 {
     "description": "All purpose Logging framework for DataFlex applications",
-    "df": 26.0
+    "df": 26.0,
+    "package": {
+        "df-max": 26.0,
+        "df-min": 26.0,
+        "license": "BSD-3-Clause-flex",
+        "version": "0.1.1"
+    },
+    "paths": {
+        "appSrc": "AppSrc"
+    },
+    "projects": [
+        "LoggerSelfTest.src"
+    ]
 }

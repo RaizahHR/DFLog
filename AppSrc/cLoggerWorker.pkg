@@ -1,0 +1,74 @@
+Use VdfBase.pkg
+
+// Higher levels include all messages from lower levels.
+Define DFLOG_NONE for 0
+Define DFLOG_ERRORS for 1
+Define DFLOG_WARNINGS for 2
+Define DFLOG_INFO for 3
+Define C_DFLOG_ECS_VERSION for "9.4.0"
+
+Register_Procedure ReportLogError String sSink String sMessage
+Register_Procedure ReportProgrammingLogError String sSink String sMessage
+Register_Function GetLoggerApplicationName Returns String
+Register_Function LogLevelName Integer iMessageLogLevel Returns String
+Register_Function FormatLogLine DateTime dtTimeStamp String sCategory String sMessage Integer iCode Integer iMessageLogLevel String sTraceId Returns String
+Register_Function GetLogDdoHandle Returns Handle
+Register_Procedure OnGetLogFolderPath String ByRef sPath
+Register_Procedure OnGetLogFilePath String ByRef sPath
+
+Class cLoggerErrorTrap is a cObject
+    Procedure Construct_Object
+        Forward Send Construct_Object
+
+        Property Integer piLastErrorNumber 0
+        Property String psLastErrorMessage ""
+    End_Procedure
+
+    Procedure Reset
+        Set piLastErrorNumber to 0
+        Set psLastErrorMessage to ""
+    End_Procedure
+
+    Procedure Error_Report Integer iErrorNumber Integer iErrorLine String sErrorMessage
+        Set piLastErrorNumber to iErrorNumber
+        Set psLastErrorMessage to sErrorMessage
+        Move True to Err
+    End_Procedure
+End_Class
+
+Class cLoggerWorker is a cObject
+    Procedure Construct_Object
+        Forward Send Construct_Object
+
+        Property Handle phoLogger 0
+        Property String psSinkName ""
+        Property Boolean pbReady False
+
+        Object oLoggerErrorTrap is a cLoggerErrorTrap
+        End_Object
+    End_Procedure
+
+    Procedure ReportWorkerError String sMessage
+        Handle hoLogger
+
+        Get phoLogger to hoLogger
+        If (hoLogger <> 0) ;
+            Send ReportLogError of hoLogger (psSinkName(Self)) sMessage
+    End_Procedure
+
+    Procedure ReportWorkerProgrammingError String sMessage
+        Handle hoLogger
+
+        Get phoLogger to hoLogger
+        If (hoLogger <> 0) ;
+            Send ReportProgrammingLogError of hoLogger (psSinkName(Self)) sMessage
+    End_Procedure
+
+    Function InitWorker Returns Boolean
+        Set pbReady to True
+        Function_Return True
+    End_Function
+
+    Procedure WriteLog DateTime dtTimeStamp String sCategory String sMessage Integer iCode Integer iMessageLogLevel String sTraceId
+    End_Procedure
+End_Class

@@ -1,0 +1,456 @@
+Use cLoggerWorker.pkg
+Use cSQLExecutor.pkg
+Use DataDict.pkg
+
+Class cLoggerSQLExecutor is a cSQLExecutor
+    Procedure Construct_Object
+        Forward Send Construct_Object
+
+        Property String psLastSQLState ""
+        Property String psLastSQLMessage ""
+    End_Procedure
+
+    Procedure ResetLastSQLError
+        Set psLastSQLState to ""
+        Set psLastSQLMessage to ""
+    End_Procedure
+
+    Procedure OnSQLError String sSQLState String sSQLMessage
+        Set psLastSQLState to sSQLState
+        Set psLastSQLMessage to sSQLMessage
+        // A failed logger must not raise another application error.
+    End_Procedure
+End_Class
+
+Class cLoggerDatabase is a cLoggerWorker
+    Procedure Construct_Object
+        Forward Send Construct_Object
+
+        Set psSinkName to "Database"
+
+        Property Handle phoLogDataDictionary 0
+        Property String psConnectionId ""
+        Property String psLogTable "dbo.DFLog"
+        Property Boolean pbAutoCreateTable True
+
+        { Visibility=Private }
+        Property String Private_psActiveConnectionId ""
+
+        Object oLoggerSQLExecutor is a cLoggerSQLExecutor
+        End_Object
+    End_Procedure
+
+    Function LogDataDictionary Returns Handle
+        Handle hoDD hoLogger
+
+        Get phoLogDataDictionary to hoDD
+        If (hoDD = 0) Begin
+            Get phoLogger to hoLogger
+            If (hoLogger <> 0) ;
+                Get GetLogDdoHandle of hoLogger to hoDD
+        End
+        Function_Return hoDD
+    End_Function
+
+    Function LoggerApplicationName Returns String
+        Handle hoLogger
+        String sName
+
+        Get phoLogger to hoLogger
+        If (hoLogger <> 0) ;
+            Get GetLoggerApplicationName of hoLogger to sName
+        Function_Return sName
+    End_Function
+
+    Function LoggerLogLevelName Integer iMessageLogLevel Returns String
+        Handle hoLogger
+        String sLevel
+
+        Get phoLogger to hoLogger
+        If (hoLogger <> 0) ;
+            Get LogLevelName of hoLogger iMessageLogLevel to sLevel
+        Function_Return sLevel
+    End_Function
+
+    Function IsSafeSQLIdentifierPart String sIdentifier Returns Boolean
+        Integer i
+        String sCharacter
+
+        Move (Trim(sIdentifier)) to sIdentifier
+        If ((Length(sIdentifier) = 0) or (Length(sIdentifier) > 128)) ;
+            Function_Return False
+
+        For i from 1 to (Length(sIdentifier))
+            Move (Mid(sIdentifier, 1, i)) to sCharacter
+            If (not("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_" contains sCharacter)) ;
+                Function_Return False
+        Loop
+
+        Function_Return True
+    End_Function
+
+    Function NormalizedLogTableName Returns String
+        Integer iDot
+        Boolean bSafe
+        String sName sSchema sTable
+
+        Get psLogTable to sName
+        Move (Trim(sName)) to sName
+        Move (Pos(".", sName)) to iDot
+
+        If (iDot = 0) Begin
+            Move "dbo" to sSchema
+            Move sName to sTable
+        End
+        Else Begin
+            Move (Left(sName, iDot - 1)) to sSchema
+            Move (Right(sName, Length(sName) - iDot)) to sTable
+            If (Pos(".", sTable) > 0) ;
+                Function_Return ""
+        End
+
+        Get IsSafeSQLIdentifierPart sSchema to bSafe
+        If (not(bSafe)) ;
+            Function_Return ""
+        Get IsSafeSQLIdentifierPart sTable to bSafe
+        If (not(bSafe)) ;
+            Function_Return ""
+
+        Function_Return (sSchema + "." + sTable)
+    End_Function
+
+    Function QuotedLogTableName Returns String
+        Integer iDot
+        String sName sSchema sTable
+
+        Get NormalizedLogTableName to sName
+        If (sName = "") ;
+            Function_Return ""
+
+        Move (Pos(".", sName)) to iDot
+        Move (Left(sName, iDot - 1)) to sSchema
+        Move (Right(sName, Length(sName) - iDot)) to sTable
+        Function_Return ("[" + sSchema + "].[" + sTable + "]")
+    End_Function
+
+    Procedure ResetCapturedErrors
+        Send Reset of oLoggerErrorTrap
+        Send ResetLastSQLError of oLoggerSQLExecutor
+    End_Procedure
+
+    Procedure ReportCapturedDatabaseError String sAction
+        String sMessage sState
+
+        Get psLastSQLMessage of oLoggerSQLExecutor to sMessage
+        Get psLastSQLState of oLoggerSQLExecutor to sState
+        If ((sMessage <> "") and (sState <> "")) ;
+            Move (sMessage + " (SQL state " + sState + ")") to sMessage
+        If (sMessage = "") ;
+            Get psLastErrorMessage of oLoggerErrorTrap to sMessage
+        If (sMessage = "") ;
+            Move "The database operation failed." to sMessage
+
+        Send ReportWorkerError (sAction + ": " + sMessage)
+    End_Procedure
+
+    Function PrepareSQLExecutor Returns Boolean
+        Boolean bOldErr bSuccess
+        Handle hoOldErrorHandler
+        String sConnectionId sActiveConnectionId
+
+        Get psConnectionId to sConnectionId
+        Move (Trim(sConnectionId)) to sConnectionId
+        If (sConnectionId = "") Begin
+            Send ReportWorkerProgrammingError "psConnectionId is empty."
+            Function_Return False
+        End
+
+        Get Private_psActiveConnectionId to sActiveConnectionId
+        If (sActiveConnectionId = sConnectionId) ;
+            Function_Return True
+
+        Move Err to bOldErr
+        Move Error_Object_Id to hoOldErrorHandler
+        Send ResetCapturedErrors
+        Move oLoggerErrorTrap to Error_Object_Id
+        Move False to Err
+
+        Set psConnectionId of oLoggerSQLExecutor to sConnectionId
+        Move (not(Err)) to bSuccess
+
+        Move hoOldErrorHandler to Error_Object_Id
+        Move bOldErr to Err
+
+        If (bSuccess) ;
+            Set Private_psActiveConnectionId to sConnectionId
+        Else ;
+            Send ReportCapturedDatabaseError "Unable to open the managed connection"
+
+        Function_Return bSuccess
+    End_Function
+
+    Function DataDictionaryField Integer iFile String sFieldName Returns Integer
+        Boolean bOldErr bFailed
+        Handle hoOldErrorHandler
+        Integer iField
+
+        Move Err to bOldErr
+        Move Error_Object_Id to hoOldErrorHandler
+        Send Reset of oLoggerErrorTrap
+        Move oLoggerErrorTrap to Error_Object_Id
+        Move False to Err
+
+        Field_Map iFile sFieldName to iField
+        Move Err to bFailed
+
+        Move hoOldErrorHandler to Error_Object_Id
+        Move bOldErr to Err
+
+        If (bFailed) ;
+            Function_Return 0
+        Function_Return iField
+    End_Function
+
+    Procedure WriteUsingDDO Handle hoDD DateTime dtTimeStamp String sCategory String sMessage Integer iCode Integer iMessageLogLevel String sTraceId
+        Boolean bOldErr bFailed
+        Handle hoOldErrorHandler
+        Integer iFile iLoggedAt iApplication iCategory iMessage iEventCode iLogLevel iTraceId
+        String sApplication sLevel
+
+        Get Main_File of hoDD to iFile
+        Get DataDictionaryField iFile "LoggedAt" to iLoggedAt
+        Get DataDictionaryField iFile "Application" to iApplication
+        Get DataDictionaryField iFile "Category" to iCategory
+        Get DataDictionaryField iFile "Message" to iMessage
+        Get DataDictionaryField iFile "EventCode" to iEventCode
+        Get DataDictionaryField iFile "LogLevel" to iLogLevel
+        Get DataDictionaryField iFile "TraceId" to iTraceId
+
+        If ((iFile = 0) or (iLoggedAt = 0) or (iApplication = 0) or ;
+            (iCategory = 0) or (iMessage = 0) or (iEventCode = 0)) Begin
+            Send ReportWorkerProgrammingError "The log DDO must expose LoggedAt, Application, Category, Message and EventCode."
+            Procedure_Return
+        End
+
+        Get LoggerApplicationName to sApplication
+        Get LoggerLogLevelName iMessageLogLevel to sLevel
+        Move Err to bOldErr
+        Move Error_Object_Id to hoOldErrorHandler
+        Send Reset of oLoggerErrorTrap
+        Move oLoggerErrorTrap to Error_Object_Id
+        Move False to Err
+
+        Send Clear of hoDD
+        Set Field_Changed_Value of hoDD iLoggedAt to dtTimeStamp
+        Set Field_Changed_Value of hoDD iApplication to (Left(sApplication, 128))
+        Set Field_Changed_Value of hoDD iCategory to (Left(sCategory, 128))
+        Set Field_Changed_Value of hoDD iMessage to sMessage
+        Set Field_Changed_Value of hoDD iEventCode to iCode
+        If (iLogLevel <> 0) ;
+            Set Field_Changed_Value of hoDD iLogLevel to sLevel
+        If (iTraceId <> 0) ;
+            Set Field_Changed_Value of hoDD iTraceId to (Left(sTraceId, 128))
+        Send Request_Save of hoDD
+        Move Err to bFailed
+
+        Move hoOldErrorHandler to Error_Object_Id
+        Move bOldErr to Err
+
+        If (bFailed) Begin
+            Get psLastErrorMessage of oLoggerErrorTrap to sMessage
+            If (sMessage = "") ;
+                Move "The DDO could not save the log record." to sMessage
+            Send ReportWorkerError sMessage
+        End
+    End_Procedure
+
+    Function TableExists Returns Boolean
+        Boolean bOldErr bPrepared bFailed bExists
+        Handle hoDD hoOldErrorHandler
+        Integer iFile
+        String sTable sSQL
+        String[][] asRows
+
+        Get LogDataDictionary to hoDD
+        If (hoDD <> 0) Begin
+            Get Main_File of hoDD to iFile
+            Function_Return (iFile <> 0)
+        End
+
+        Get NormalizedLogTableName to sTable
+        If (sTable = "") Begin
+            Send ReportWorkerProgrammingError "psLogTable must be Table or Schema.Table using letters, digits and underscores."
+            Function_Return False
+        End
+
+        Get PrepareSQLExecutor to bPrepared
+        If (not(bPrepared)) ;
+            Function_Return False
+
+        Move Err to bOldErr
+        Move Error_Object_Id to hoOldErrorHandler
+        Send ResetCapturedErrors
+        Move oLoggerErrorTrap to Error_Object_Id
+        Move False to Err
+
+        Send SQLPrepare of oLoggerSQLExecutor ;
+            "SELECT CASE WHEN OBJECT_ID(${TableName}, N'U') IS NULL THEN 0 ELSE 1 END"
+        Send SQLSetParameter of oLoggerSQLExecutor "TableName" sTable
+        Get SQLExecute of oLoggerSQLExecutor to asRows
+        Move Err to bFailed
+
+        Move hoOldErrorHandler to Error_Object_Id
+        Move bOldErr to Err
+
+        If (bFailed) Begin
+            Send ReportCapturedDatabaseError "Unable to check the log table"
+            Function_Return False
+        End
+        If (SizeOfArray(asRows) > 0) ;
+            Move (asRows[0][0] = "1") to bExists
+
+        Function_Return bExists
+    End_Function
+
+    Function CreateTable Returns Boolean
+        Boolean bOldErr bPrepared bFailed bExists
+        Handle hoOldErrorHandler
+        String sTable sQuotedTable sSQL sFailure
+        Variant vResult
+
+        Get NormalizedLogTableName to sTable
+        Get QuotedLogTableName to sQuotedTable
+        If ((sTable = "") or (sQuotedTable = "")) Begin
+            Send ReportWorkerProgrammingError "psLogTable must be Table or Schema.Table using letters, digits and underscores."
+            Function_Return False
+        End
+
+        Get PrepareSQLExecutor to bPrepared
+        If (not(bPrepared)) ;
+            Function_Return False
+
+        Move @SQL"""
+            IF OBJECT_ID(N'{{TABLE_NAME}}', N'U') IS NULL
+            BEGIN
+                CREATE TABLE {{QUOTED_TABLE}}
+                (
+                    [ID] bigint IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                    [LoggedAt] datetime2(3) NOT NULL,
+                    [Application] nvarchar(128) NOT NULL,
+                    [Category] nvarchar(128) NOT NULL,
+                    [Message] nvarchar(max) NOT NULL,
+                    [EventCode] int NOT NULL,
+                    [LogLevel] nvarchar(16) NOT NULL,
+                    [TraceId] nvarchar(128) NULL
+                );
+
+                CREATE INDEX [IX_DFLog_LoggedAt]
+                    ON {{QUOTED_TABLE}} ([LoggedAt] DESC, [ID] DESC)
+                    INCLUDE ([Application], [Category], [EventCode]);
+            END
+            """ to sSQL
+        Move (Replaces("{{TABLE_NAME}}", sSQL, sTable)) to sSQL
+        Move (Replaces("{{QUOTED_TABLE}}", sSQL, sQuotedTable)) to sSQL
+
+        Move Err to bOldErr
+        Move Error_Object_Id to hoOldErrorHandler
+        Send ResetCapturedErrors
+        Move oLoggerErrorTrap to Error_Object_Id
+        Move False to Err
+
+        Get SQLExecDirect of oLoggerSQLExecutor sSQL to vResult
+        Move Err to bFailed
+
+        Move hoOldErrorHandler to Error_Object_Id
+        Move bOldErr to Err
+
+        If (bFailed) Begin
+            Get psLastSQLMessage of oLoggerSQLExecutor to sFailure
+            If (sFailure = "") ;
+                Get psLastErrorMessage of oLoggerErrorTrap to sFailure
+
+            // Another WebApp process may have created the table after our check.
+            Get TableExists to bExists
+            If (bExists) ;
+                Function_Return True
+
+            If (sFailure = "") ;
+                Move "The database operation failed." to sFailure
+            Send ReportWorkerError ("Unable to create the log table: " + sFailure)
+            Function_Return False
+        End
+
+        Get TableExists to bExists
+        Function_Return bExists
+    End_Function
+
+    Function InitWorker Returns Boolean
+        Boolean bExists bCreated
+
+        Get TableExists to bExists
+        If ((not(bExists)) and (pbAutoCreateTable(Self))) ;
+            Get CreateTable to bCreated
+        Move (bExists or bCreated) to bExists
+        Set pbReady to bExists
+
+        If ((not(bExists)) and (not(pbAutoCreateTable(Self)))) ;
+            Send ReportWorkerProgrammingError "The log table does not exist and automatic creation is disabled."
+
+        Function_Return bExists
+    End_Function
+
+    Procedure WriteLog DateTime dtTimeStamp String sCategory String sMessage Integer iCode Integer iMessageLogLevel String sTraceId
+        Boolean bOldErr bPrepared bFailed bReady
+        Handle hoDD hoOldErrorHandler
+        String sTable sSQL sApplication sLevel
+        Variant vResult
+
+        Get LogDataDictionary to hoDD
+        If (hoDD <> 0) Begin
+            Send WriteUsingDDO hoDD dtTimeStamp sCategory sMessage iCode iMessageLogLevel sTraceId
+            Procedure_Return
+        End
+
+        Get pbReady to bReady
+        If (not(bReady)) ;
+            Get InitWorker to bReady
+        If (not(bReady)) ;
+            Procedure_Return
+
+        Get PrepareSQLExecutor to bPrepared
+        If (not(bPrepared)) ;
+            Procedure_Return
+        Get QuotedLogTableName to sTable
+        Get LoggerApplicationName to sApplication
+        Get LoggerLogLevelName iMessageLogLevel to sLevel
+        Move ("INSERT INTO " + sTable + ;
+            " ([LoggedAt], [Application], [Category], [Message], [EventCode], [LogLevel], [TraceId])" + ;
+            " VALUES (${LoggedAt}, ${Application}, ${Category}, ${Message}, ${EventCode}, ${LogLevel}, ${TraceId})") to sSQL
+
+        Move Err to bOldErr
+        Move Error_Object_Id to hoOldErrorHandler
+        Send ResetCapturedErrors
+        Move oLoggerErrorTrap to Error_Object_Id
+        Move False to Err
+
+        Send SQLPrepare of oLoggerSQLExecutor sSQL
+        Send SQLSetParameter of oLoggerSQLExecutor "LoggedAt" dtTimeStamp
+        Send SQLSetParameter of oLoggerSQLExecutor "Application" (Left(sApplication, 128))
+        Send SQLSetParameter of oLoggerSQLExecutor "Category" (Left(sCategory, 128))
+        Send SQLSetParameter of oLoggerSQLExecutor "Message" sMessage
+        Send SQLSetParameter of oLoggerSQLExecutor "EventCode" iCode
+        Send SQLSetParameter of oLoggerSQLExecutor "LogLevel" sLevel
+        Send SQLSetParameter of oLoggerSQLExecutor "TraceId" (Left(sTraceId, 128))
+        Get SQLExecute of oLoggerSQLExecutor to vResult
+        Move Err to bFailed
+
+        Move hoOldErrorHandler to Error_Object_Id
+        Move bOldErr to Err
+
+        If (bFailed) Begin
+            Set pbReady to False
+            Set Private_psActiveConnectionId to ""
+            Send ReportCapturedDatabaseError "Unable to insert the log entry"
+        End
+    End_Procedure
+End_Class

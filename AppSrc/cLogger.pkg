@@ -1,138 +1,440 @@
-﻿Use VdfBase.pkg
+Use cLoggerDatabase.pkg
+Use cLoggerFile.pkg
+Use cLoggerEventLog.pkg
+Use cJsonObject.pkg
+
+Define C_DFLOG_DEFAULT_TABLE     for "dbo.DFLog"
+Define C_DFLOG_DEFAULT_FOLDER    for "Logs"
+Define C_DFLOG_DEFAULT_FILE      for "DFLog.jsonl"
+Define C_DFLOG_DEFAULT_EVENTCODE for 100
 
 Class cLogger is a cObject
-    
     Procedure Construct_Object
         Forward Send Construct_Object
-        
-        Property Boolean pbWriteToFile      // If True, write any log to the designated log file
-        Property Boolean pbWriteToDatabase  // If True, write any log to the designated area in the database
-        Property Boolean pbWriteToEventLog  // If True, write any log to the Windows Event Log
-        
-        // Defaults, can be overridden
-        Property Handle phoLogDataDictionary
-        Property String psLogTable
-        
-        Property String psLogFolderPath
-        Property Boolean pbLogToSingleFile False // If True, will write everything to one big log file. If false, will separate the log file per day
-        Property Integer piEventCode
+
+        Property Boolean pbWriteToDatabase False
+        Property Boolean pbWriteToFile False
+        Property Boolean pbWriteToEventLog False
+
+        Property Handle phoLogDataDictionary 0
+        Property String psConnectionId ""
+        Property String psLogTable C_DFLOG_DEFAULT_TABLE
+        Property Boolean pbAutoCreateTable True
+
+        Property String psLogFolderPath ""
+        Property String psLogFileName C_DFLOG_DEFAULT_FILE
+        Property Boolean pbLogToSingleFile False
+
+        Property String psApplicationName ""
+        Property Integer piEventCode C_DFLOG_DEFAULT_EVENTCODE
+        Property String psLastError ""
+        Property Boolean pbDebugErrorsEnabled True
+
+        Property Integer Private_piLogLevel DFLOG_INFO
+
+        Property Handle phoLoggerDatabase 0
+        Property Handle phoLoggerFile 0
+        Property Handle phoLoggerEventLog 0
+
+        { Visibility=Private }
+        Property Boolean Private_pbIsWriting False
     End_Procedure
-    
+
+    { MethodType=Property }
+    Procedure Set piLogLevel Integer iLogLevel
+        If ((iLogLevel < DFLOG_NONE) or (iLogLevel > DFLOG_INFO)) Begin
+            Send ReportProgrammingLogError "Logger" ("Invalid piLogLevel " + String(iLogLevel) + ;
+                ". Expected DFLOG_NONE, DFLOG_ERRORS, DFLOG_WARNINGS, or DFLOG_INFO.")
+            Procedure_Return
+        End
+
+        Set Private_piLogLevel to iLogLevel
+    End_Procedure
+
+    { MethodType=Property }
+    Function piLogLevel Returns Integer
+        Function_Return (Private_piLogLevel(Self))
+    End_Function
+
+    Function LogLevelEnabled Integer iMessageLogLevel Returns Boolean
+        Function_Return (piLogLevel(Self) >= iMessageLogLevel)
+    End_Function
+
+    Procedure ReportLogError String sSink String sMessage
+        Set psLastError to (sSink + ": " + sMessage)
+        Send OnLogError sSink sMessage
+    End_Procedure
+
+    Procedure ReportProgrammingLogError String sSink String sMessage
+        String sError
+
+        Send ReportLogError sSink sMessage
+        If (pbDebugErrorsEnabled(Self)) Begin
+            Move ("DFLog " + sSink + ": " + sMessage) to sError
+            Error DFERR_PROGRAM sError
+        End
+    End_Procedure
+
+    { MethodType=Event }
+    Procedure OnLogError String sSink String sMessage
+    End_Procedure
+
+    Function GetDefaultLogDataDictionary Returns Handle
+        Function_Return 0
+    End_Function
+
+    Function GetLogDdoHandle Returns Handle
+        Handle hoDD
+
+        Get phoLogDataDictionary to hoDD
+        If (hoDD = 0) ;
+            Get GetDefaultLogDataDictionary to hoDD
+        Send OnGetLogDdoHandle (&hoDD)
+        Function_Return hoDD
+    End_Function
+
+    // Compatibility alias for the misspelling in the original scaffold.
     Function GetLogDdoHande Returns Handle
         Handle hoDD
-        
-        Get phoLogDataDictionary to hoDD
-        
-        Send OnGetLogDdoHandle (&hoDD)
-            
-        Function_Return hoDd
+
+        Get GetLogDdoHandle to hoDD
+        Function_Return hoDD
     End_Function
-    
-    {MethodType = Event}
-    Procedure OnGetLogDdoHandle Handle ByRef HoDD
-        // Stub
+
+    { MethodType=Event }
+    Procedure OnGetLogDdoHandle Handle ByRef hoDD
     End_Procedure
-    
-    Function GetLogFilePath Returns String
-        String sPath
-        
-        Get psLogFile to sPath
-        
-        Send OnGetLogFilePath (&sPath)
-            
-        Function_Return sPath
+
+    Function GetLoggerApplicationName Returns String
+        Handle hoWorkspace
+        String sName
+
+        Get psApplicationName to sName
+        If ((sName = "") and (ghoApplication <> 0)) Begin
+            Get phoWorkspace of ghoApplication to hoWorkspace
+            If (hoWorkspace <> 0) ;
+                Get psWorkspaceName of hoWorkspace to sName
+            If (sName = "") ;
+                Get GetApplicationName of ghoApplication to sName
+        End
+        If (sName = "") ;
+            Move "DataFlex" to sName
+
+        Send OnGetLoggerApplicationName (&sName)
+        Function_Return sName
     End_Function
-    
-    {MethodType = Event}
-    Procedure OnGetLogFilePath String ByRef sPath
-        // Stub
+
+    { MethodType=Event }
+    Procedure OnGetLoggerApplicationName String ByRef sName
     End_Procedure
-    
+
     Function GetEventCode Returns Integer
         Integer iCode
-        
+
         Get piEventCode to iCode
-        
         Send OnGetEventCode (&iCode)
-            
         Function_Return iCode
     End_Function
-    
-    {MethodType = Event}
+
+    { MethodType=Event }
     Procedure OnGetEventCode Integer ByRef iCode
-        // Stub
     End_Procedure
-    
-    Procedure WriteLog DateTime dtTimeStamp String sCategory String sMessage Integer iOptCode
-        If (pbWriteToDatabase(Self)) ;
-            Send WriteLogEntryDatabase dtTimeStamp sCategory sMessage iOptCode
 
-        If (pbWriteToFile(Self)) ;
-            Send WriteLogEntryFile dtTimeStamp sCategory sMessage iOptCode
-            
-        If (pbWriteToEventLog(Self)) ;
-            Send WriteLogEntryEventLog dtTimeStamp sCategory sMessage 100
-    End_Procedure
-    
-    Procedure WriteLogEntryDatabase DateTime dtTimeStamp String sCategory String sMessage Integer iOptCode
-        Boolean bExists
-        
-        Get TableExists to bExists
-        If (bExists) Begin
-            // Write entry in DB using DDO
-        End
-    End_Procedure
-    
-    Procedure WriteLogEntryFile DateTime dtTimeStamp String sCategory String sMessage Integer iOptCode
-        Boolean bExists
-        
-        Get LogFolderExists to bExists
+    Function FormatLogTimestamp DateTime dtTimeStamp Returns String
+        String sTimeStamp
 
-        If (bExists) Begin
-            // Check pbLogToSingleFile and write accordingly
+        Move (String(DateGetYear(dtTimeStamp))) to sTimeStamp
+        Move (sTimeStamp + "-" + Right("0" + String(DateGetMonth(dtTimeStamp)), 2)) to sTimeStamp
+        Move (sTimeStamp + "-" + Right("0" + String(DateGetDay(dtTimeStamp)), 2)) to sTimeStamp
+        Move (sTimeStamp + "T" + Right("0" + String(DateGetHour(dtTimeStamp)), 2)) to sTimeStamp
+        Move (sTimeStamp + ":" + Right("0" + String(DateGetMinute(dtTimeStamp)), 2)) to sTimeStamp
+        Move (sTimeStamp + ":" + Right("0" + String(DateGetSecond(dtTimeStamp)), 2)) to sTimeStamp
+        Move (sTimeStamp + "." + Right("00" + String(DateGetMillisecond(dtTimeStamp)), 3)) to sTimeStamp
+        Function_Return sTimeStamp
+    End_Function
+
+    Function LogLevelName Integer iMessageLogLevel Returns String
+        If (iMessageLogLevel = DFLOG_ERRORS) ;
+            Function_Return "error"
+        If (iMessageLogLevel = DFLOG_WARNINGS) ;
+            Function_Return "warning"
+
+        Function_Return "info"
+    End_Function
+
+    Function FormatLogLine DateTime dtTimeStamp String sCategory String sMessage Integer iCode Integer iMessageLogLevel String sTraceId Returns String
+        Handle hoJson hoEcs hoLog hoService hoEvent hoTrace
+        String sLine sApplication sLevel sTimeStamp
+
+        Get GetLoggerApplicationName to sApplication
+        Get LogLevelName iMessageLogLevel to sLevel
+        Get FormatLogTimestamp dtTimeStamp to sTimeStamp
+
+        Get Create (RefClass(cJsonObject)) to hoJson
+        Get Create (RefClass(cJsonObject)) to hoEcs
+        Get Create (RefClass(cJsonObject)) to hoLog
+        Get Create (RefClass(cJsonObject)) to hoService
+        Get Create (RefClass(cJsonObject)) to hoEvent
+        Send InitializeJsonType of hoJson jsonTypeObject
+        Send InitializeJsonType of hoEcs jsonTypeObject
+        Send InitializeJsonType of hoLog jsonTypeObject
+        Send InitializeJsonType of hoService jsonTypeObject
+        Send InitializeJsonType of hoEvent jsonTypeObject
+
+        Send SetMemberValue of hoJson "@timestamp" jsonTypeString sTimeStamp
+        Send SetMemberValue of hoJson "message" jsonTypeString sMessage
+        Send SetMemberValue of hoEcs "version" jsonTypeString C_DFLOG_ECS_VERSION
+        Send SetMemberValue of hoLog "level" jsonTypeString sLevel
+        Send SetMemberValue of hoService "name" jsonTypeString sApplication
+        Send SetMemberValue of hoEvent "action" jsonTypeString sCategory
+        Send SetMemberValue of hoEvent "code" jsonTypeString (String(iCode))
+        Send SetMember of hoJson "ecs" hoEcs
+        Send SetMember of hoJson "log" hoLog
+        Send SetMember of hoJson "service" hoService
+        Send SetMember of hoJson "event" hoEvent
+
+        Move (Trim(sTraceId)) to sTraceId
+        If (sTraceId <> "") Begin
+            Get Create (RefClass(cJsonObject)) to hoTrace
+            Send InitializeJsonType of hoTrace jsonTypeObject
+            Send SetMemberValue of hoTrace "id" jsonTypeString sTraceId
+            Send SetMember of hoJson "trace" hoTrace
         End
+
+        Get Stringify of hoJson to sLine
+        If (hoTrace <> 0) ;
+            Send Destroy of hoTrace
+        Send Destroy of hoEvent
+        Send Destroy of hoService
+        Send Destroy of hoLog
+        Send Destroy of hoEcs
+        Send Destroy of hoJson
+        Function_Return sLine
+    End_Function
+
+    { MethodType=Event }
+    Procedure OnGetLogFolderPath String ByRef sPath
     End_Procedure
-    
-    Procedure WriteLogEntryEventLog DateTime dtTimeStamp String sCategory String sMessage Integer iCode
+
+    { MethodType=Event }
+    Procedure OnGetLogFilePath String ByRef sPath
     End_Procedure
-    
+
+    Function EnsureDatabaseWorker Returns Handle
+        Handle hoWorker
+
+        Get phoLoggerDatabase to hoWorker
+        If (hoWorker = 0) Begin
+            Get Create (RefClass(cLoggerDatabase)) to hoWorker
+            Set phoLogger of hoWorker to Self
+            Set phoLoggerDatabase to hoWorker
+        End
+
+        Set phoLogDataDictionary of hoWorker to (phoLogDataDictionary(Self))
+        Set psConnectionId of hoWorker to (psConnectionId(Self))
+        Set psLogTable of hoWorker to (psLogTable(Self))
+        Set pbAutoCreateTable of hoWorker to (pbAutoCreateTable(Self))
+        Function_Return hoWorker
+    End_Function
+
+    Function EnsureFileWorker Returns Handle
+        Handle hoWorker
+
+        Get phoLoggerFile to hoWorker
+        If (hoWorker = 0) Begin
+            Get Create (RefClass(cLoggerFile)) to hoWorker
+            Set phoLogger of hoWorker to Self
+            Set phoLoggerFile to hoWorker
+        End
+
+        Set psLogFolderPath of hoWorker to (psLogFolderPath(Self))
+        Set psLogFileName of hoWorker to (psLogFileName(Self))
+        Set pbLogToSingleFile of hoWorker to (pbLogToSingleFile(Self))
+        Function_Return hoWorker
+    End_Function
+
+    Function EnsureEventLogWorker Returns Handle
+        Handle hoWorker
+
+        Get phoLoggerEventLog to hoWorker
+        If (hoWorker = 0) Begin
+            Get Create (RefClass(cLoggerEventLog)) to hoWorker
+            Set phoLogger of hoWorker to Self
+            Set phoLoggerEventLog to hoWorker
+        End
+        Function_Return hoWorker
+    End_Function
+
+    Procedure DestroyWorker Handle hoWorker
+        If (hoWorker <> 0) ;
+            Send Destroy of hoWorker
+    End_Procedure
+
     Procedure InitLogger
+        Boolean bReady
+        Handle hoWorker
+
         If (pbWriteToDatabase(Self)) Begin
-            // Check if table exists
-            // Create if not
+            Get EnsureDatabaseWorker to hoWorker
+            Get InitWorker of hoWorker to bReady
         End
-        
+        Else Begin
+            Get phoLoggerDatabase to hoWorker
+            Send DestroyWorker hoWorker
+            Set phoLoggerDatabase to 0
+        End
+
         If (pbWriteToFile(Self)) Begin
-            // Check if folder exists
-            // Create folder if not    
+            Get EnsureFileWorker to hoWorker
+            Get InitWorker of hoWorker to bReady
+        End
+        Else Begin
+            Get phoLoggerFile to hoWorker
+            Send DestroyWorker hoWorker
+            Set phoLoggerFile to 0
+        End
+
+        If (pbWriteToEventLog(Self)) Begin
+            Get EnsureEventLogWorker to hoWorker
+            Get InitWorker of hoWorker to bReady
+        End
+        Else Begin
+            Get phoLoggerEventLog to hoWorker
+            Send DestroyWorker hoWorker
+            Set phoLoggerEventLog to 0
         End
     End_Procedure
-    
-    // Check if given psLogTable exists
-    // Return true if exists, false if missing
+
+    Procedure EnsureEnabledWorkers
+        If ((pbWriteToDatabase(Self)) and (phoLoggerDatabase(Self) = 0)) ;
+            Send InitLogger
+        Else If ((pbWriteToFile(Self)) and (phoLoggerFile(Self) = 0)) ;
+            Send InitLogger
+        Else If ((pbWriteToEventLog(Self)) and (phoLoggerEventLog(Self) = 0)) ;
+            Send InitLogger
+    End_Procedure
+
+    Procedure WriteLogEntryDatabase DateTime dtTimeStamp String sCategory String sMessage Integer iCode Integer iMessageLogLevel String sTraceId
+        Handle hoWorker
+
+        Get phoLoggerDatabase to hoWorker
+        If (hoWorker <> 0) ;
+            Send WriteLog of hoWorker dtTimeStamp sCategory sMessage iCode iMessageLogLevel sTraceId
+    End_Procedure
+
+    Procedure WriteLogEntryFile DateTime dtTimeStamp String sCategory String sMessage Integer iCode Integer iMessageLogLevel String sTraceId
+        Handle hoWorker
+
+        Get phoLoggerFile to hoWorker
+        If (hoWorker <> 0) ;
+            Send WriteLog of hoWorker dtTimeStamp sCategory sMessage iCode iMessageLogLevel sTraceId
+    End_Procedure
+
+    Procedure WriteLogEntryEventLog DateTime dtTimeStamp String sCategory String sMessage Integer iCode Integer iMessageLogLevel String sTraceId
+        Handle hoWorker
+
+        Get phoLoggerEventLog to hoWorker
+        If (hoWorker <> 0) ;
+            Send WriteLog of hoWorker dtTimeStamp sCategory sMessage iCode iMessageLogLevel sTraceId
+    End_Procedure
+
+    Procedure WriteLog DateTime dtTimeStamp String sCategory String sMessage Integer iOptCode Integer iOptMessageLogLevel String sOptTraceId
+        Boolean bEnabled bOldErr
+        Integer iCode iMessageLogLevel
+
+        If (Private_pbIsWriting(Self)) ;
+            Procedure_Return
+
+        Move iOptMessageLogLevel to iMessageLogLevel
+        If ((iMessageLogLevel < DFLOG_ERRORS) or (iMessageLogLevel > DFLOG_INFO)) ;
+            Move DFLOG_INFO to iMessageLogLevel
+        Get LogLevelEnabled iMessageLogLevel to bEnabled
+        If (not(bEnabled)) ;
+            Procedure_Return
+
+        Move Err to bOldErr
+        Set Private_pbIsWriting to True
+        Set psLastError to ""
+        Send EnsureEnabledWorkers
+
+        Move iOptCode to iCode
+        If (iCode = 0) ;
+            Get GetEventCode to iCode
+
+        If (pbWriteToDatabase(Self)) ;
+            Send WriteLogEntryDatabase dtTimeStamp sCategory sMessage iCode iMessageLogLevel sOptTraceId
+        If (pbWriteToFile(Self)) ;
+            Send WriteLogEntryFile dtTimeStamp sCategory sMessage iCode iMessageLogLevel sOptTraceId
+        If (pbWriteToEventLog(Self)) ;
+            Send WriteLogEntryEventLog dtTimeStamp sCategory sMessage iCode iMessageLogLevel sOptTraceId
+
+        Set Private_pbIsWriting to False
+        Move bOldErr to Err
+    End_Procedure
+
+    Procedure LogMessage String sCategory String sMessage Integer iOptCode Integer iOptMessageLogLevel String sOptTraceId
+        Send WriteLog (CurrentDateTime()) sCategory sMessage iOptCode iOptMessageLogLevel sOptTraceId
+    End_Procedure
+
     Function TableExists Returns Boolean
+        Handle hoWorker
+        Boolean bExists
+
+        Get phoLoggerDatabase to hoWorker
+        If (hoWorker <> 0) ;
+            Get TableExists of hoWorker to bExists
+        Function_Return bExists
     End_Function
-    
-    // Create table (based on psLogTableName) if it doesn't exist
-    // Return 1 if success, 0 if failed
-    Function CreateTable Returns Integer
-        // Use external SQL script with a parameterized table name for this?
+
+    Function CreateTable Returns Boolean
+        Handle hoWorker
+        Boolean bCreated
+
+        Get phoLoggerDatabase to hoWorker
+        If (hoWorker <> 0) ;
+            Get CreateTable of hoWorker to bCreated
+        Function_Return bCreated
     End_Function
-    
-    // Check if given psLogFolderPath exists
-    // Return true if exists, false if missing
+
     Function LogFolderExists Returns Boolean
+        Handle hoWorker
+        Boolean bExists
+
+        Get phoLoggerFile to hoWorker
+        If (hoWorker <> 0) ;
+            Get LogFolderExists of hoWorker to bExists
+        Function_Return bExists
     End_Function
-    
-    // Create the log folder in the Workspace's root directory
-    // Return 1 if success, 0 if failed
-    Function CreateLogFolder Returns Integer
+
+    Function CreateLogFolder Returns Boolean
+        Handle hoWorker
+        Boolean bCreated
+
+        Get phoLoggerFile to hoWorker
+        If (hoWorker <> 0) ;
+            Get CreateLogFolder of hoWorker to bCreated
+        Function_Return bCreated
+    End_Function
+
+    Function GetLogFilePathForDateTime DateTime dtTimeStamp Returns String
+        Handle hoWorker
+        String sPath
+
+        Get phoLoggerFile to hoWorker
+        If (hoWorker <> 0) ;
+            Get GetLogFilePathForDateTime of hoWorker dtTimeStamp to sPath
+        Function_Return sPath
+    End_Function
+
+    Function GetLogFilePath Returns String
+        String sPath
+
+        Get GetLogFilePathForDateTime (CurrentDateTime()) to sPath
+        Function_Return sPath
     End_Function
 
     Procedure End_Construct_Object
         Forward Send End_Construct_Object
-        
         Send InitLogger
     End_Procedure
-
 End_Class

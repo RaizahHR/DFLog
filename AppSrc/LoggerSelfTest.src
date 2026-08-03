@@ -1,0 +1,194 @@
+Use cApplication.pkg
+Use cLogger.pkg
+
+Object oApplication is a cApplication
+End_Object
+
+Object oLogger is a cLogger
+End_Object
+
+Object oSelfTestErrorTrap is a cLoggerErrorTrap
+End_Object
+
+Procedure RunLoggerSelfTest
+    Boolean bExists bPassed bOldErr bReady bErrorsEnabled bWarningsEnabled bInfoEnabled bParsed
+    Handle hoFileWorker hoDatabaseWorker hoEventLogWorker hoOldErrorHandler
+    Handle hoJson hoLog hoService hoEvent hoEcs hoTrace
+    String sRoot sFolder sFile sLine sLastError sPassFile sFailureFile sNativeError
+    String sExpectedMessage sParsedMessage sTimestamp sLevel sService sAction sCode sVersion sTraceId
+    Integer iChannel iNativeError iConfiguredLogLevel iErrorEventType iWarningEventType iInformationEventType
+
+    Get_Current_Directory to sRoot
+    Move (sRoot + "\Data\LoggerSelfTest") to sFolder
+    Move (sRoot + "\Data\LoggerSelfTest.passed") to sPassFile
+    Move (sRoot + "\Data\LoggerSelfTest.failed") to sFailureFile
+    File_Exist sPassFile bExists
+    If (bExists) EraseFile sPassFile
+    File_Exist sFailureFile bExists
+    If (bExists) EraseFile sFailureFile
+
+    Set pbWriteToFile of oLogger to True
+    Set pbLogToSingleFile of oLogger to True
+    Set psLogFolderPath of oLogger to sFolder
+    Set psLogFileName of oLogger to "self-test.jsonl"
+    Set psApplicationName of oLogger to "DFLog self-test"
+    Send InitLogger of oLogger
+    Get phoLoggerFile of oLogger to hoFileWorker
+    Get phoLoggerDatabase of oLogger to hoDatabaseWorker
+    Get phoLoggerEventLog of oLogger to hoEventLogWorker
+    Get GetLogFilePath of oLogger to sFile
+    File_Exist sFile bExists
+    If (bExists) ;
+        EraseFile sFile
+
+    Move ("A message with" + Character(9) + "a tab and " + Character(34) + "quotes" + Character(34)) to sExpectedMessage
+    Send LogMessage of oLogger "Test.Action" sExpectedMessage 42 DFLOG_WARNINGS "trace-test-123"
+
+    Get psLastError of oLogger to sLastError
+    File_Exist sFile bExists
+
+    If (bExists) Begin
+        Move (Seq_New_Channel()) to iChannel
+        If (iChannel <> DF_SEQ_CHANNEL_NOT_AVAILABLE) Begin
+            Direct_Input Channel iChannel sFile
+            Readln Channel iChannel sLine
+            Close_Input Channel iChannel
+            Send Seq_Release_Channel iChannel
+        End
+    End
+
+    Get Create (RefClass(cJsonObject)) to hoJson
+    If (bExists) ;
+        Get ParseString of hoJson sLine to bParsed
+    If (bParsed) Begin
+        Get MemberValue of hoJson "@timestamp" to sTimestamp
+        Get MemberValue of hoJson "message" to sParsedMessage
+        Get Member of hoJson "log" to hoLog
+        Get Member of hoJson "service" to hoService
+        Get Member of hoJson "event" to hoEvent
+        Get Member of hoJson "ecs" to hoEcs
+        Get Member of hoJson "trace" to hoTrace
+        Get MemberValue of hoLog "level" to sLevel
+        Get MemberValue of hoService "name" to sService
+        Get MemberValue of hoEvent "action" to sAction
+        Get MemberValue of hoEvent "code" to sCode
+        Get MemberValue of hoEcs "version" to sVersion
+        Get MemberValue of hoTrace "id" to sTraceId
+    End
+
+    Move ((hoFileWorker <> 0) and (hoDatabaseWorker = 0) and (hoEventLogWorker = 0) and ;
+        bExists and bParsed and (sLastError = "") and (Pos("T", sTimestamp) = 11) and ;
+        (sParsedMessage = sExpectedMessage) and (sLevel = "warning") and ;
+        (sService = "DFLog self-test") and (sAction = "Test.Action") and ;
+        (sCode = "42") and (sVersion = C_DFLOG_ECS_VERSION) and ;
+        (sTraceId = "trace-test-123")) to bPassed
+
+    If (hoTrace <> 0) ;
+        Send Destroy of hoTrace
+    If (hoEcs <> 0) ;
+        Send Destroy of hoEcs
+    If (hoEvent <> 0) ;
+        Send Destroy of hoEvent
+    If (hoService <> 0) ;
+        Send Destroy of hoService
+    If (hoLog <> 0) ;
+        Send Destroy of hoLog
+    Send Destroy of hoJson
+
+    If (bPassed) Begin
+        Set pbWriteToFile of oLogger to False
+        Send InitLogger of oLogger
+        Get phoLoggerFile of oLogger to hoFileWorker
+        Move (hoFileWorker = 0) to bPassed
+    End
+
+    If (bPassed) Begin
+        Set piLogLevel of oLogger to DFLOG_ERRORS
+        Get LogLevelEnabled of oLogger DFLOG_ERRORS to bErrorsEnabled
+        Get LogLevelEnabled of oLogger DFLOG_WARNINGS to bWarningsEnabled
+        Get LogLevelEnabled of oLogger DFLOG_INFO to bInfoEnabled
+        Move (bErrorsEnabled and (not(bWarningsEnabled)) and (not(bInfoEnabled))) to bPassed
+        Set piLogLevel of oLogger to DFLOG_INFO
+        Set pbDebugErrorsEnabled of oLogger to False
+        Set piLogLevel of oLogger to 99
+        Get piLogLevel of oLogger to iConfiguredLogLevel
+        Get psLastError of oLogger to sLastError
+        Move (bPassed and (iConfiguredLogLevel = DFLOG_INFO) and ;
+            (Pos("Invalid piLogLevel 99", sLastError) > 0)) to bPassed
+        Set psLastError of oLogger to ""
+    End
+
+    If (bPassed) Begin
+        Set pbDebugErrorsEnabled of oLogger to False
+        Set pbWriteToEventLog of oLogger to True
+        Send InitLogger of oLogger
+        Get phoLoggerEventLog of oLogger to hoEventLogWorker
+        Get pbReady of hoEventLogWorker to bReady
+        Get psLastError of oLogger to sLastError
+        Get EventTypeForLogLevel of hoEventLogWorker DFLOG_ERRORS to iErrorEventType
+        Get EventTypeForLogLevel of hoEventLogWorker DFLOG_WARNINGS to iWarningEventType
+        Get EventTypeForLogLevel of hoEventLogWorker DFLOG_INFO to iInformationEventType
+        Move ((iErrorEventType = |CI$0001) and (iWarningEventType = |CI$0002) and ;
+            (iInformationEventType = |CI$0004)) to bPassed
+        If (bPassed) Begin
+            If (bReady) Begin
+                Send LogMessage of oLogger "SelfTest" "Windows Application event-log test" 100 DFLOG_INFO
+                Get psLastError of oLogger to sLastError
+                Move (sLastError = "") to bPassed
+            End
+            Else ;
+                Move (Pos("is not registered with an EventMessageFile", sLastError) > 0) to bPassed
+        End
+        Set pbWriteToEventLog of oLogger to False
+        Send InitLogger of oLogger
+    End
+
+    If (bPassed) Begin
+        Set pbDebugErrorsEnabled of oLogger to False
+        Set pbWriteToDatabase of oLogger to True
+        Send InitLogger of oLogger
+        Get phoLoggerDatabase of oLogger to hoDatabaseWorker
+        Get psLastError of oLogger to sLastError
+        Move ((hoDatabaseWorker <> 0) and ;
+            (Pos("psConnectionId is empty.", sLastError) > 0)) to bPassed
+        Set pbWriteToDatabase of oLogger to False
+        Send InitLogger of oLogger
+    End
+
+    If (bPassed) Begin
+        Move Err to bOldErr
+        Move Error_Object_Id to hoOldErrorHandler
+        Send Reset of oSelfTestErrorTrap
+        Move oSelfTestErrorTrap to Error_Object_Id
+        Move False to Err
+
+        Set pbDebugErrorsEnabled of oLogger to True
+        Set pbWriteToDatabase of oLogger to True
+        Send InitLogger of oLogger
+        Get piLastErrorNumber of oSelfTestErrorTrap to iNativeError
+        Get psLastErrorMessage of oSelfTestErrorTrap to sNativeError
+
+        Move hoOldErrorHandler to Error_Object_Id
+        Move bOldErr to Err
+        Move ((iNativeError = DFERR_PROGRAM) and ;
+            (Pos("DFLog Database: psConnectionId is empty.", sNativeError) > 0)) to bPassed
+        Set pbWriteToDatabase of oLogger to False
+        Send InitLogger of oLogger
+    End
+
+    If (bPassed) Begin
+        EraseFile sFile
+        Remove_Directory sFolder
+        Direct_Output sPassFile
+        Writeln "PASS"
+        Close_Output
+    End
+    Else Begin
+        Direct_Output sFailureFile
+        Writeln sLastError
+        Close_Output
+    End
+    Abort
+End_Procedure
+
+Send RunLoggerSelfTest

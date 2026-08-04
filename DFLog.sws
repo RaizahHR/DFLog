@@ -4,11 +4,12 @@
     "package": {
         "df-max": 26.0,
         "df-min": 26.0,
+        "includeFiles": [
+            "Scripts",
+            "SQL"
+        ],
         "license": "BSD-3-Clause-flex",
-        "version": "0.1.1"
-    },
-    "paths": {
-        "appSrc": "AppSrc"
+        "version": "0.2.0"
     },
     "projects": [
         "LoggerSelfTest.src"

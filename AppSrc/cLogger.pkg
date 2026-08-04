@@ -7,6 +7,7 @@ Define C_DFLOG_DEFAULT_EVENTCODE for 100
 
 // Public logger API. Owns shared log settings and dispatches each entry to its
 // enabled child cLoggerWorker objects.
+{ ClassLibrary = Common }
 Class cLogger is a cObject
     Procedure Construct_Object
         Forward Send Construct_Object

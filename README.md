@@ -31,6 +31,11 @@ The implementation is split by responsibility:
 
 ## Basic use
 
+Adding `cLogger` from the Studio Class Palette's **Logging** group creates the
+logger with commented database, file, and event-log worker blocks. Uncomment
+only the sinks the application needs, and set `psConnectionId` before enabling
+the database worker.
+
 Add the DFLog `AppSrc` folder to the consuming workspace's AppSrcPath, then
 create the logger after the application/connection objects:
 

@@ -1,0 +1,13 @@
+Object
+
+    // Object oDbLogWorker is a cLoggerDatabase
+    //     Set psConnectionId to ""
+    // End_Object
+
+    // Object oFileLogWorker is a cLoggerFile
+    // End_Object
+
+    // Object oEventLogWorker is a cLoggerEventLog
+    // End_Object
+
+End_Object

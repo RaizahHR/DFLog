@@ -123,10 +123,14 @@ Class cLogger is a cObject
     Procedure OnGetEventCode Integer ByRef iCode
     End_Procedure
 
-    // Formats a DataFlex DateTime as an ISO 8601 timestamp with milliseconds.
-    // No timezone suffix is added because DataFlex DateTime has no zone data.
+    // Converts a local DataFlex DateTime to UTC and formats it as an ECS-ready
+    // ISO 8601 timestamp with milliseconds and an explicit Z suffix.
     Function FormatLogTimestamp DateTime dtTimeStamp Returns String
+        Integer iUtcOffset
         String sTimeStamp
+
+        Move (SysConf(SYSCONF_UTC_TIME_OFFSET)) to iUtcOffset
+        Move (DateAddSecond(dtTimeStamp, iUtcOffset)) to dtTimeStamp
 
         Move (String(DateGetYear(dtTimeStamp))) to sTimeStamp
         Move (sTimeStamp + "-" + Right("0" + String(DateGetMonth(dtTimeStamp)), 2)) to sTimeStamp
@@ -134,7 +138,7 @@ Class cLogger is a cObject
         Move (sTimeStamp + "T" + Right("0" + String(DateGetHour(dtTimeStamp)), 2)) to sTimeStamp
         Move (sTimeStamp + ":" + Right("0" + String(DateGetMinute(dtTimeStamp)), 2)) to sTimeStamp
         Move (sTimeStamp + ":" + Right("0" + String(DateGetSecond(dtTimeStamp)), 2)) to sTimeStamp
-        Move (sTimeStamp + "." + Right("00" + String(DateGetMillisecond(dtTimeStamp)), 3)) to sTimeStamp
+        Move (sTimeStamp + "." + Right("00" + String(DateGetMillisecond(dtTimeStamp)), 3) + "Z") to sTimeStamp
         Function_Return sTimeStamp
     End_Function
 

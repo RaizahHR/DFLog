@@ -94,6 +94,23 @@ Class cLoggerEventLog is a cLoggerWorker
         Function_Return C_DFLOG_EVENTLOG_INFORMATION_TYPE
     End_Function
 
+    // Adds the action and trace identifier to the readable Event Viewer body.
+    // Windows supplies timestamp, source, event ID, and severity as metadata.
+    Function FormatEventMessage String sCategory String sMessage String sTraceId String sAdditionalData Returns String
+        String sEventMessage
+
+        Move sMessage to sEventMessage
+        If (Trim(sCategory) <> "") ;
+            Move (sEventMessage + Character(13) + Character(10) + Character(13) + Character(10) + ;
+                "Event action: " + sCategory) to sEventMessage
+        If (Trim(sTraceId) <> "") ;
+            Move (sEventMessage + Character(13) + Character(10) + "Trace ID: " + sTraceId) to sEventMessage
+        If (Trim(sAdditionalData) <> "") ;
+            Move (sEventMessage + Character(13) + Character(10) + "Additional data: " + sAdditionalData) to sEventMessage
+
+        Function_Return sEventMessage
+    End_Function
+
     // Validates the application/source name and opens its native event handle.
     Function InitWorker Returns Boolean
         Handle hoLogger hEventSource
@@ -157,10 +174,7 @@ Class cLoggerEventLog is a cLoggerWorker
         Get phEventSource to hEventSource
         Get EventTypeForLogLevel iMessageLogLevel to wEventType
 
-        Move sMessage to sEventMessage
-        If (Trim(sAdditionalData) <> "") ;
-            Move (sEventMessage + Character(13) + Character(10) + Character(13) + Character(10) + ;
-                "Additional data: " + sAdditionalData) to sEventMessage
+        Get FormatEventMessage sCategory sMessage sTraceId sAdditionalData to sEventMessage
 
         Move sEventMessage to wMessage
         Move (AddressOf(wMessage)) to pMessage

@@ -46,7 +46,7 @@ Procedure RunLoggerSelfTest
     Handle hoFileWorker hoDatabaseWorker hoEventLogWorker hoOldErrorHandler
     Handle[] hoaWorkers
     Handle hoJson hoLog hoService hoEvent hoEcs hoTrace hoAdditionalFields hoAdditionalEvent hoHttp hoResponse
-    String sRoot sFolder sFile sLine sLastError sPassFile sFailureFile sNativeError
+    String sRoot sFolder sFile sLine sLastError sPassFile sFailureFile sNativeError sEventMessage
     String sExpectedMessage sParsedMessage sTimestamp sLevel sService sAction sCode sVersion sTraceId sOutcome sCustomAdditionalData
     Integer iChannel iNativeError iConfiguredLogLevel iErrorEventType iWarningEventType iInformationEventType iCustomWriteCount iHttpStatus
 
@@ -100,6 +100,9 @@ Procedure RunLoggerSelfTest
     Get psLastError of oLogger to sLastError
     File_Exist sFile bExists
 
+    Get FormatEventMessage of oEventLogWorker "Test.Action" sExpectedMessage ;
+        "trace-test-123" sCustomAdditionalData to sEventMessage
+
     If (bExists) Begin
         Move (Seq_New_Channel()) to iChannel
         If (iChannel <> DF_SEQ_CHANNEL_NOT_AVAILABLE) Begin
@@ -138,11 +141,15 @@ Procedure RunLoggerSelfTest
         (hoFileWorker <> 0) and ;
         (hoDatabaseWorker <> 0) and (hoEventLogWorker <> 0) and ;
         bExists and bParsed and (sLastError = "") and (Pos("T", sTimestamp) = 11) and ;
+        (Right(sTimestamp, 1) = "Z") and ;
         (sParsedMessage = sExpectedMessage) and (sLevel = "warning") and ;
         (sService = "DFLog self-test") and (sAction = "Test.Action") and ;
         (sCode = "42") and (sOutcome = "success") and (iHttpStatus = 201) and ;
         (sVersion = C_DFLOG_ECS_VERSION) and ;
-        (sTraceId = "trace-test-123")) to bPassed
+        (sTraceId = "trace-test-123") and ;
+        (Pos("Event action: Test.Action", sEventMessage) > 0) and ;
+        (Pos("Trace ID: trace-test-123", sEventMessage) > 0) and ;
+        (Pos("Additional data: ", sEventMessage) > 0)) to bPassed
 
     If (hoResponse <> 0) ;
         Send Destroy of hoResponse

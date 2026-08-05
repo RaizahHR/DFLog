@@ -126,7 +126,7 @@ When `pbLogToSingleFile` is false (the default), files are named
 `DFLog-yyyy-mm-dd.jsonl`. Every physical line is one independent JSON object:
 
 ```json
-{"@timestamp":"2026-08-03T10:45:36.659","message":"Validating archive","ecs":{"version":"9.4.0"},"log":{"level":"info"},"service":{"name":"Package Manager Server"},"event":{"action":"package.push","code":"100"},"trace":{"id":"czztwloaodiclxmuhxygpmtcypaxftlt"}}
+{"@timestamp":"2026-08-03T08:45:36.659Z","message":"Validating archive","ecs":{"version":"9.4.0"},"log":{"level":"info"},"service":{"name":"Package Manager Server"},"event":{"action":"package.push","code":"100"},"trace":{"id":"4bf92f3577b34da6a3ce929d0e0e4736"}}
 ```
 
 This is a deliberately small ECS subset rather than an implementation of the
@@ -134,10 +134,9 @@ entire schema. `sCategory` maps to `event.action`, `iCode` to `event.code`, and
 the optional final argument to `trace.id`. JSON serialization escapes quotes,
 tabs, and line endings without changing the original message value.
 
-`@timestamp` preserves the supplied DataFlex `DateTime` in ISO 8601 form with
-milliseconds. DataFlex `DateTime` values carry no time-zone information, so no
-offset is invented; configure the source time zone in the ingest pipeline if
-UTC timestamps are required.
+`@timestamp` treats the supplied DataFlex `DateTime` as local time, converts it
+with DataFlex's current UTC offset, and writes ISO 8601 with milliseconds and a
+`Z` suffix. Calls normally pass `CurrentDateTime()`.
 
 ## Database setup
 
@@ -191,11 +190,11 @@ session before enabling this sink:
 
 The script registers each source in the Application log and associates it with
 Windows' generic event-message resource. The caller's `iCode` becomes the Event
-ID, its log level becomes the native Windows event type, and the description is
-only the original message. Windows already stores the timestamp and application
-source as event metadata. When additional data is supplied, the Event Log
-worker appends its compact JSON to the readable description under an
-`Additional data:` label.
+ID, its log level becomes the native Windows event type, and the description
+starts with the original message. Windows already stores the timestamp and
+application source as event metadata. The worker appends the event action and
+trace ID as readable lines, followed by compact JSON under an `Additional
+data:` label when structured data is supplied.
 
 Source registration changes HKLM and therefore belongs in installation or
 deployment, not application startup. Run the script again if

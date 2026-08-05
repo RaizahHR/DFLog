@@ -9,7 +9,7 @@
             "SQL"
         ],
         "license": "BSD-3-Clause-flex",
-        "version": "0.2.0"
+        "version": "0.2.1"
     },
     "projects": [
         "LoggerSelfTest.src"

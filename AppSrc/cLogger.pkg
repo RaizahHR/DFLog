@@ -265,11 +265,11 @@ Class cLogger is a cObject
         Loop
     End_Procedure
 
-    // Writes one entry to every enabled worker. A zero code uses piEventCode;
-    // an invalid/omitted message level defaults to DFLOG_INFO. The optional
-    // JSON object is call-scoped and is never stored on the singleton logger.
+    // Writes one entry to each enabled worker whose effective threshold allows
+    // it. A zero code uses piEventCode; an invalid/omitted message level
+    // defaults to DFLOG_INFO. The optional JSON object is call-scoped.
     Procedure WriteLog DateTime dtTimeStamp String sCategory String sMessage Integer iOptCode Integer iOptMessageLogLevel String sOptTraceId Handle hoOptAdditionalFields
-        Boolean bEnabled bOldErr bReady bWorkerEnabled
+        Boolean bOldErr bReady bWorkerEnabled bWorkerLogLevelEnabled
         Handle hoWorker
         Handle[] hoaWorkers
         Integer i iCode iMessageLogLevel
@@ -281,9 +281,6 @@ Class cLogger is a cObject
         Move iOptMessageLogLevel to iMessageLogLevel
         If ((iMessageLogLevel < DFLOG_ERRORS) or (iMessageLogLevel > DFLOG_INFO)) ;
             Move DFLOG_INFO to iMessageLogLevel
-        Get LogLevelEnabled iMessageLogLevel to bEnabled
-        If (not(bEnabled)) ;
-            Procedure_Return
 
         Move Err to bOldErr
         Set Private_pbIsWriting to True
@@ -299,11 +296,14 @@ Class cLogger is a cObject
             Move hoaWorkers[i] to hoWorker
             Get pbEnabled of hoWorker to bWorkerEnabled
             If (bWorkerEnabled) Begin
-                Get pbReady of hoWorker to bReady
-                If (not(bReady)) ;
-                    Get InitWorker of hoWorker to bReady
-                If (bReady) ;
-                    Send WriteLog of hoWorker dtTimeStamp sCategory sMessage iCode iMessageLogLevel sOptTraceId sAdditionalData
+                Get LogLevelEnabled of hoWorker iMessageLogLevel to bWorkerLogLevelEnabled
+                If (bWorkerLogLevelEnabled) Begin
+                    Get pbReady of hoWorker to bReady
+                    If (not(bReady)) ;
+                        Get InitWorker of hoWorker to bReady
+                    If (bReady) ;
+                        Send WriteLog of hoWorker dtTimeStamp sCategory sMessage iCode iMessageLogLevel sOptTraceId sAdditionalData
+                End
             End
         Loop
 

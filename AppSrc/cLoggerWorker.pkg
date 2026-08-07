@@ -1,6 +1,7 @@
 Use VdfBase.pkg
 
 // Logger thresholds. Higher levels include all messages from lower levels.
+Define DFLOG_INHERIT for -1
 Define DFLOG_NONE for 0
 Define DFLOG_ERRORS for 1
 Define DFLOG_WARNINGS for 2
@@ -50,6 +51,10 @@ Class cLoggerWorker is a cObject
         // Parent cLogger assigned automatically during InitLogger.
         Property Handle phoLogger 0
 
+        // Optional worker-specific threshold. The explicit -1 class default
+        // inherits the enclosing cLogger's piLogLevel.
+        Property Integer piLogLevel DFLOG_INHERIT
+
         // Short diagnostic name used as the prefix for worker errors.
         Property String psSinkName ""
 
@@ -62,6 +67,25 @@ Class cLoggerWorker is a cObject
         Object oLoggerErrorTrap is a cLoggerErrorTrap
         End_Object
     End_Procedure
+
+    // Resolves an inherited threshold through the worker's enclosing logger.
+    Function EffectiveLogLevel Returns Integer
+        Integer iLogLevel
+
+        Get piLogLevel to iLogLevel
+        If (iLogLevel = DFLOG_INHERIT) ;
+            Delegate Get piLogLevel to iLogLevel
+
+        Function_Return iLogLevel
+    End_Function
+
+    // Returns True when this worker should accept the supplied message level.
+    Function LogLevelEnabled Integer iMessageLogLevel Returns Boolean
+        Integer iLogLevel
+
+        Get EffectiveLogLevel to iLogLevel
+        Function_Return (iLogLevel >= iMessageLogLevel)
+    End_Function
 
     // Reports a recoverable I/O or sink failure through the parent logger.
     Procedure ReportWorkerError String sMessage

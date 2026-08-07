@@ -53,6 +53,7 @@ Object oLogger is a cLogger
 
     Object oFileLogWorker is a cLoggerFile
         Set psLogFolderPath to "Logs" // relative to the workspace root
+        Set piLogLevel to DFLOG_WARNINGS // optional worker override
     End_Object
 
     Object oEventLogWorker is a cLoggerEventLog
@@ -63,12 +64,16 @@ Send LogMessage of oLogger "Startup" "The application started." 100 DFLOG_INFO
 Send WriteLog of oLogger (CurrentDateTime()) "package.push" "Package rejected." 200 DFLOG_ERRORS "optional-trace-id"
 ```
 
-`piLogLevel` controls verbosity for every enabled sink: `DFLOG_NONE`,
-`DFLOG_ERRORS`, `DFLOG_WARNINGS`, or `DFLOG_INFO`. The final optional arguments
-to `WriteLog` and `LogMessage` are the trace ID and a `cJsonObject` containing
-additional fields. A message is written only when `piLogLevel` is greater than
-or equal to its level. Calls that omit these arguments default to `DFLOG_INFO`
-with no trace ID or additional fields.
+The logger's `piLogLevel` is the default verbosity for every enabled sink:
+`DFLOG_NONE`, `DFLOG_ERRORS`, `DFLOG_WARNINGS`, or `DFLOG_INFO`. Every worker
+also has `piLogLevel`, explicitly defaulted by `cLoggerWorker` to
+`DFLOG_INHERIT` (`-1`). Set it on an individual worker to override the logger's
+threshold for that sink. A message is written when that worker's effective
+level is greater than or equal to the message level.
+
+The final optional arguments to `WriteLog` and `LogMessage` are the trace ID
+and a `cJsonObject` containing additional fields. Calls that omit these
+arguments default to `DFLOG_INFO` with no trace ID or additional fields.
 
 The same message level becomes the Windows event type and the ECS `log.level`:
 errors are `error`, warnings are `warning`, and informational messages are

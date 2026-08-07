@@ -48,7 +48,8 @@ Procedure RunLoggerSelfTest
     Handle hoJson hoLog hoService hoEvent hoEcs hoTrace hoAdditionalFields hoAdditionalEvent hoHttp hoResponse
     String sRoot sFolder sFile sLine sLastError sPassFile sFailureFile sNativeError sEventMessage
     String sExpectedMessage sParsedMessage sTimestamp sLevel sService sAction sCode sVersion sTraceId sOutcome sCustomAdditionalData
-    Integer iChannel iNativeError iConfiguredLogLevel iErrorEventType iWarningEventType iInformationEventType iCustomWriteCount iHttpStatus
+    Integer iChannel iNativeError iConfiguredLogLevel iWorkerLogLevel iEffectiveLogLevel iWriteCountBefore
+    Integer iErrorEventType iWarningEventType iInformationEventType iCustomWriteCount iHttpStatus
 
     Get_Current_Directory to sRoot
     Move (sRoot + "\Data\LoggerSelfTest") to sFolder
@@ -188,6 +189,35 @@ Procedure RunLoggerSelfTest
         Move (bPassed and (iConfiguredLogLevel = DFLOG_INFO) and ;
             (Pos("Invalid piLogLevel 99", sLastError) > 0)) to bPassed
         Set psLastError of oLogger to ""
+    End
+
+    If (bPassed) Begin
+        Get piLogLevel of oCustomLogWorker to iWorkerLogLevel
+        Set piLogLevel of oLogger to DFLOG_INFO
+        Get EffectiveLogLevel of oCustomLogWorker to iEffectiveLogLevel
+        Move ((iWorkerLogLevel = DFLOG_INHERIT) and ;
+            (iEffectiveLogLevel = DFLOG_INFO)) to bPassed
+
+        If (bPassed) Begin
+            Set piLogLevel of oLogger to DFLOG_ERRORS
+            Set piLogLevel of oCustomLogWorker to DFLOG_INFO
+            Get piWriteCount of oCustomLogWorker to iWriteCountBefore
+            Send LogMessage of oLogger "SelfTest" "Worker override accepts info" 100 DFLOG_INFO
+            Get piWriteCount of oCustomLogWorker to iCustomWriteCount
+            Move (iCustomWriteCount = (iWriteCountBefore + 1)) to bPassed
+        End
+
+        If (bPassed) Begin
+            Set piLogLevel of oLogger to DFLOG_INFO
+            Set piLogLevel of oCustomLogWorker to DFLOG_NONE
+            Get piWriteCount of oCustomLogWorker to iWriteCountBefore
+            Send LogMessage of oLogger "SelfTest" "Worker override suppresses errors" 100 DFLOG_ERRORS
+            Get piWriteCount of oCustomLogWorker to iCustomWriteCount
+            Move (iCustomWriteCount = iWriteCountBefore) to bPassed
+        End
+
+        Set piLogLevel of oCustomLogWorker to DFLOG_INHERIT
+        Set piLogLevel of oLogger to DFLOG_INFO
     End
 
     If (bPassed) Begin

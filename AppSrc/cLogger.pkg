@@ -180,10 +180,12 @@ Class cLogger is a cObject
     // Returns an object member, replacing a missing or non-object member with
     // a new JSON object. Used to merge logger-owned ECS fields safely.
     Function JsonObjectMember Handle hoJson String sMemberName Returns Handle
-        Boolean bIsObject
+        Boolean bHasMember bIsObject
         Handle hoMember
 
-        Get IsMemberOfJsonType of hoJson sMemberName jsonTypeObject to bIsObject
+        Get HasMember of hoJson sMemberName to bHasMember
+        If (bHasMember) ;
+            Get IsMemberOfJsonType of hoJson sMemberName jsonTypeObject to bIsObject
         If (bIsObject) ;
             Get Member of hoJson sMemberName to hoMember
         Else Begin

@@ -47,7 +47,7 @@ Procedure RunLoggerSelfTest
     Handle[] hoaWorkers
     Handle hoJson hoLog hoService hoEvent hoEcs hoTrace hoAdditionalFields hoAdditionalEvent hoHttp hoResponse
     String sRoot sFolder sFile sLine sLastError sPassFile sFailureFile sNativeError sEventMessage
-    String sExpectedMessage sParsedMessage sTimestamp sLevel sService sAction sCode sVersion sTraceId sOutcome sCustomAdditionalData
+    String sExpectedMessage sParsedMessage sTimestamp sLevel sService sAction sCode sVersion sTraceId sOutcome sCustomAdditionalData sPlainLine
     Integer iChannel iNativeError iConfiguredLogLevel iWorkerLogLevel iEffectiveLogLevel iWriteCountBefore
     Integer iErrorEventType iWarningEventType iInformationEventType iCustomWriteCount iHttpStatus
 
@@ -103,6 +103,8 @@ Procedure RunLoggerSelfTest
 
     Get FormatEventMessage of oEventLogWorker "Test.Action" sExpectedMessage ;
         "trace-test-123" sCustomAdditionalData to sEventMessage
+    Get FormatLogLine of oLogger (CurrentDateTime()) "Test.Plain" "No additional data" ;
+        100 DFLOG_INFO "" "" to sPlainLine
 
     If (bExists) Begin
         Move (Seq_New_Channel()) to iChannel
@@ -150,7 +152,8 @@ Procedure RunLoggerSelfTest
         (sTraceId = "trace-test-123") and ;
         (Pos("Event action: Test.Action", sEventMessage) > 0) and ;
         (Pos("Trace ID: trace-test-123", sEventMessage) > 0) and ;
-        (Pos("Additional data: ", sEventMessage) > 0)) to bPassed
+        (Pos("Additional data: ", sEventMessage) > 0) and ;
+        (Pos(Character(34) + "ecs" + Character(34), sPlainLine) > 0)) to bPassed
 
     If (hoResponse <> 0) ;
         Send Destroy of hoResponse

@@ -708,7 +708,8 @@
 			<classLibrary>Windows</classLibrary>
 		</class>
 		<class>
-			<className>cLogger</className><image></image>
+			<className>cLogger</className>
+			<image>ControlObject.ico</image>
 			<package>cLogger.pkg</package>
 			<groupName>Logging</groupName><libraryID></libraryID>
 			<classLibrary>Common</classLibrary>

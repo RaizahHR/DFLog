@@ -280,6 +280,15 @@ Class cLogger is a cObject
         If (Private_pbIsWriting(Self)) ;
             Procedure_Return
 
+        If (Num_Arguments < 4) ;
+            Move 0 to iOptCode
+        If (Num_Arguments < 5) ;
+            Move DFLOG_INFO to iOptMessageLogLevel
+        If (Num_Arguments < 6) ;
+            Move "" to sOptTraceId
+        If (Num_Arguments < 7) ;
+            Move 0 to hoOptAdditionalFields
+
         Move iOptMessageLogLevel to iMessageLogLevel
         If ((iMessageLogLevel < DFLOG_ERRORS) or (iMessageLogLevel > DFLOG_INFO)) ;
             Move DFLOG_INFO to iMessageLogLevel
@@ -315,6 +324,15 @@ Class cLogger is a cObject
 
     // Convenience wrapper around WriteLog using CurrentDateTime().
     Procedure LogMessage String sCategory String sMessage Integer iOptCode Integer iOptMessageLogLevel String sOptTraceId Handle hoOptAdditionalFields
+        If (Num_Arguments < 3) ;
+            Move 0 to iOptCode
+        If (Num_Arguments < 4) ;
+            Move DFLOG_INFO to iOptMessageLogLevel
+        If (Num_Arguments < 5) ;
+            Move "" to sOptTraceId
+        If (Num_Arguments < 6) ;
+            Move 0 to hoOptAdditionalFields
+
         Send WriteLog (CurrentDateTime()) sCategory sMessage iOptCode iOptMessageLogLevel sOptTraceId hoOptAdditionalFields
     End_Procedure
 

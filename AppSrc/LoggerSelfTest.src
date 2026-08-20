@@ -172,6 +172,20 @@ Procedure RunLoggerSelfTest
     Send Destroy of hoJson
 
     If (bPassed) Begin
+        Get piWriteCount of oCustomLogWorker to iWriteCountBefore
+        Send LogMessage of oLogger "SelfTest.Optional" "LogMessage defaults"
+        Send LogMessage of oLogger "SelfTest.Optional" "LogMessage code" 101
+        Send LogMessage of oLogger "SelfTest.Optional" "LogMessage level" 101 DFLOG_INFO
+        Send LogMessage of oLogger "SelfTest.Optional" "LogMessage trace" 101 DFLOG_INFO "trace-optional"
+        Send WriteLog of oLogger (CurrentDateTime()) "SelfTest.Optional" "WriteLog defaults"
+        Send WriteLog of oLogger (CurrentDateTime()) "SelfTest.Optional" "WriteLog code" 101
+        Send WriteLog of oLogger (CurrentDateTime()) "SelfTest.Optional" "WriteLog level" 101 DFLOG_INFO
+        Send WriteLog of oLogger (CurrentDateTime()) "SelfTest.Optional" "WriteLog trace" 101 DFLOG_INFO "trace-optional"
+        Get piWriteCount of oCustomLogWorker to iCustomWriteCount
+        Move (iCustomWriteCount = (iWriteCountBefore + 8)) to bPassed
+    End
+
+    If (bPassed) Begin
         Set pbEnabled of oFileLogWorker to False
         Send InitLogger of oLogger
         Get pbReady of oFileLogWorker to bReady
